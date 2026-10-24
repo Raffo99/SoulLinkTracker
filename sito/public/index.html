@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Soul Link Tracker</title>
+<style>
+  :root{--bg:#12131a;--pan:#1b1d27;--pan2:#232634;--bordo:#2f3344;--testo:#e8e9f0;--tenue:#9498ad;--acc:#7c5cff;--ok:#3ecf8e;--warn:#f5b942;--ko:#ff5c6c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--testo);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  header{display:flex;flex-wrap:wrap;align-items:center;gap:16px;padding:12px 22px;background:var(--pan);border-bottom:1px solid var(--bordo);position:sticky;top:0;z-index:5}
+  h1{font-size:19px;margin:0} h1 span{color:var(--acc)}
+  h2{font-size:12.5px;text-transform:uppercase;letter-spacing:1.2px;color:var(--tenue);margin:0 0 10px}
+  .pill{padding:3px 10px;border-radius:99px;font-size:12px;font-weight:600}
+  .pill.ok{background:#3ecf8e22;color:var(--ok)} .pill.ko{background:#ff5c6c22;color:var(--ko)}
+  .sp{flex:1}
+  .gioc{display:flex;flex-direction:column;font-size:12.5px;color:var(--tenue);line-height:1.3}
+  .gioc b{color:var(--testo);font-size:13.5px;display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#555;display:inline-block}
+  .dot.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  select,button,input{font:inherit;color:var(--testo);background:var(--pan2);border:1px solid var(--bordo);border-radius:7px;padding:5px 9px}
+  button{cursor:pointer} button:hover{border-color:var(--acc)}
+  button.primario{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}
+  button.mini{padding:1px 7px;font-size:11.5px}
+  main{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;padding:18px 22px;max-width:1500px;margin:0 auto}
+  .box{background:var(--pan);border:1px solid var(--bordo);border-radius:12px;padding:14px 16px;min-width:0}
+  .c12{grid-column:span 12}.c6{grid-column:span 6}.c8{grid-column:span 8}.c4{grid-column:span 4}
+  @media (max-width:1000px){.c6,.c8,.c4{grid-column:span 12}}
+  .avvisi{border-color:#f5b94255;background:#f5b9420d} .avvisi li{color:var(--warn);margin:3px 0}
+  ul{margin:0;padding-left:18px}
+  .squadra{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+  .card{background:var(--pan2);border:1px solid var(--bordo);border-radius:10px;padding:10px;position:relative}
+  .card.ko{opacity:.45;filter:grayscale(1)}
+  .card img{width:64px;height:64px;image-rendering:pixelated;display:block;margin:-4px auto 2px}
+  .nome{font-weight:700;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .spec{color:var(--tenue);font-size:12px;text-align:center}
+  .hp{height:6px;background:#0006;border-radius:3px;overflow:hidden;margin:6px 0 4px} .hp i{display:block;height:100%}
+  .tipi{display:flex;gap:4px;justify-content:center;flex-wrap:wrap}
+  .tipo{font-size:10.5px;padding:1px 7px;border-radius:99px;color:#fff;font-weight:600;text-shadow:0 1px 1px #0005}
+  .partner{font-size:11.5px;color:var(--tenue);text-align:center;margin-top:5px}
+  .lv{position:absolute;top:6px;right:8px;font-size:11px;color:var(--tenue)}
+  .scroll{overflow-x:auto}
+  table{width:100%;border-collapse:collapse}
+  th{text-align:left;font-size:11.5px;color:var(--tenue);font-weight:600;padding:6px 8px;border-bottom:1px solid var(--bordo)}
+  td{padding:7px 8px;border-bottom:1px solid #ffffff08;vertical-align:middle}
+  .cella{display:flex;flex-direction:column;gap:4px}
+  .mini-pk{display:flex;align-items:center;gap:6px}
+  .mini-pk img{width:34px;height:34px;image-rendering:pixelated}
+  .mini-pk small{color:var(--tenue);display:block;font-size:11px}
+  .et{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:5px;background:#ffffff10;color:var(--tenue);margin-left:4px;font-weight:600}
+  .et.ok,.et.squadra,.et.catturato{background:#3ecf8e22;color:var(--ok)} .et.ko,.et.morto,.et.fallito{background:#ff5c6c22;color:var(--ko)}
+  .et.incerto,.et.in_corso{background:#f5b94222;color:var(--warn)}
+  .st{font-size:11.5px;font-weight:600}
+  .st.attiva{color:var(--ok)} .st.morta{color:var(--ko)} .st.rotta{color:var(--warn)} .st.in_attesa,.st.in_lotta{color:var(--tenue)}
+  .lista{max-height:360px;overflow:auto;font-size:13px}
+  .lista div{padding:4px 0;border-bottom:1px solid #ffffff08}
+  .lista time{color:var(--tenue);font-size:11.5px;margin-right:6px}
+  .ev-morte{color:var(--ko)} .ev-gameover{color:var(--ko);font-weight:700} .ev-legame{color:#b9a8ff} .ev-cattura{color:var(--ok)} .ev-allarme{color:var(--warn)} .ev-incontro{color:#8fc7ff}
+  .cimitero{display:flex;flex-wrap:wrap;gap:8px}
+  .lapide{background:var(--pan2);border:1px solid var(--bordo);border-radius:10px 10px 4px 4px;padding:8px 10px;text-align:center;min-width:120px}
+  .lapide img{width:48px;height:48px;filter:grayscale(1);opacity:.6;image-rendering:pixelated}
+  .lapide small{display:block;color:var(--tenue);font-size:11px}
+  .vuoto{color:var(--tenue);font-style:italic}
+  .diag{font:12px/1.5 ui-monospace,Consolas,monospace}
+  .diag .s{display:inline-block;width:16px;font-weight:700} .diag .si{color:var(--ok)} .diag .no{color:var(--ko)} .diag .forse{color:var(--warn)}
+  #gameover{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:20;flex-direction:column;gap:14px;text-align:center;padding:20px}
+  #gameover h3{font-size:64px;margin:0;color:var(--ko);letter-spacing:6px;text-shadow:0 0 30px #ff5c6c88}
+  #gameover p{margin:0;font-size:17px}
+  .riga{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  label.chk{display:flex;gap:6px;align-items:center;margin:4px 0}
+  .obiettivi td,.obiettivi th{padding:5px 8px} .obiettivi td:first-child{white-space:nowrap}
+  .ob{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;cursor:pointer;border-radius:6px;padding:2px 8px;border:1px solid var(--bordo);background:var(--pan2);color:var(--tenue)}
+  .ob.fatto{background:#3ecf8e22;border-color:#3ecf8e55;color:var(--ok);font-weight:600}
+  .tipo-ob{font-size:10.5px;color:var(--tenue);margin-left:6px;text-transform:uppercase;letter-spacing:.8px}
+  .prog{height:6px;background:#0006;border-radius:3px;overflow:hidden;width:120px;display:inline-block;vertical-align:middle;margin-left:8px} .prog i{display:block;height:100%;background:var(--acc)}
+  .ev-obiettivo{color:#ffd166;font-weight:600}
+  #vittoria{position:fixed;inset:0;background:#000c;display:none;align-items:center;justify-content:center;z-index:20;flex-direction:column;gap:14px;text-align:center}
+  #vittoria h3{font-size:58px;margin:0;color:#ffd166;letter-spacing:4px;text-shadow:0 0 30px #ffd16688}
+</style>
+</head>
+<body>
+<header>
+  <h1>Soul Link <span>Tracker</span></h1>
+  <span id="run" class="pill ok">Run #1</span>
+  <div class="sp"></div>
+  <div id="giocatori" style="display:flex;gap:22px"></div>
+</header>
+
+<main>
+  <section class="box c12 avvisi" id="box-avvisi" style="display:none"><h2>Avvisi</h2><ul id="avvisi"></ul></section>
+  <section class="box c6"><h2 id="t-sq0">Squadra</h2><div class="squadra" id="sq0"></div></section>
+  <section class="box c6"><h2 id="t-sq1">Squadra</h2><div class="squadra" id="sq1"></div></section>
+
+  <section class="box c8">
+    <h2>Percorsi e coppie</h2>
+    <div class="scroll"><table><thead id="th-perc"></thead><tbody id="percorsi"></tbody></table></div>
+    <details style="margin-top:10px"><summary style="color:var(--tenue);cursor:pointer">Segna a mano un incontro fallito (solo se lo script era spento)</summary>
+      <div class="riga" style="margin-top:8px"><select id="f-gioc"></select><select id="f-luogo"></select><button onclick="segnaFallito()">Segna fallito</button></div>
+    </details>
+  </section>
+  <section class="box c4"><h2>Diario</h2><div class="lista" id="eventi"></div></section>
+
+  <section class="box c12"><h2>Obiettivi</h2><div class="scroll"><table class="obiettivi"><thead id="th-ob"></thead><tbody id="obiettivi"></tbody></table></div></section>
+  <section class="box c8"><h2>Cimitero</h2><div class="cimitero" id="cimitero"></div></section>
+  <section class="box c4">
+    <h2>Regole</h2>
+    <label class="chk"><input type="checkbox" id="r-doppioni"> Clausola doppioni (stessa famiglia non conta)</label>
+    <label class="chk"><input type="checkbox" id="r-shiny"> Clausola shiny (gli shiny non contano)</label>
+    <label class="chk"><input type="checkbox" id="r-lega"> Superquattro battuti (level cap Iris)</label>
+    <h2 style="margin-top:16px">Run precedenti</h2><div id="storico"></div>
+    <div class="riga" style="margin-top:12px">
+      <button onclick="if(confirm('Dichiarare game over?'))azione({azione:'game_over'})">Game over manuale</button>
+      <button onclick="if(confirm('Abbandonare la run e generare nuove ROM?'))azione({azione:'nuova_run'})">Nuova run</button>
+    </div>
+  </section>
+
+  <section class="box c12" id="box-diag" style="display:none"><h2>Diagnostica memoria (config.lua → diagnostica = true)</h2><div id="diag" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:16px"></div></section>
+</main>
+
+<div id="vittoria">
+  <h3>RUN VINTA!</h3>
+  <p id="vi-stat" style="font-size:17px"></p>
+  <button class="primario" style="font-size:16px;padding:10px 20px" onclick="azione({azione:'nuova_run'})">Nuova run</button>
+  <button onclick="document.getElementById('vittoria').style.display='none';chiusoV=S.run">Guarda la run</button>
+</div>
+<div id="gameover">
+  <h3>GAME OVER</h3>
+  <p id="go-motivo"></p>
+  <p id="go-stat" style="color:var(--tenue);font-size:14px"></p>
+  <button class="primario" style="font-size:16px;padding:10px 20px" onclick="azione({azione:'nuova_run'})">Nuova run: randomizza e ricomincia</button>
+  <button onclick="document.getElementById('gameover').style.display='none';chiuso=S.run">Guarda la run</button>
+</div>
+
+<script>
+const COL={Normale:"#9a9a7a",Fuoco:"#ee7f30",Acqua:"#6890f0",Erba:"#6fbf4a",Elettro:"#e9c02c",Ghiaccio:"#7ccfcf",Lotta:"#c03028",Veleno:"#a040a0",Terra:"#d6b55a",Volante:"#a890f0",Psico:"#f85888",Coleottero:"#a8b820",Roccia:"#b8a038",Spettro:"#705898",Drago:"#7038f8",Buio:"#705848",Acciaio:"#a8a8c0"};
+const sprite=id=>`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/${id}.png`;
+let S=null,chiuso=0,chiusoV=0,codice=null;
+try{codice=localStorage.getItem('sl_codice')}catch(e){}
+const $=id=>document.getElementById(id);
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const nome=p=>p.soprannome||p.nome_specie;
+const tipi=t=>`<div class="tipi">${t.map(x=>`<span class="tipo" style="background:${COL[x]||'#666'}">${x}</span>`).join('')}</div>`;
+const img=s=>s?`<img src="${sprite(s)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">`:'';
+const ora=t=>new Date(t*1000).toLocaleTimeString('it-IT',{hour:'2-digit',minute:'2-digit'});
+
+async function azione(d){
+  if(!codice){codice=prompt('Codice della partita (la variabile CODICE su Cloudflare):');if(!codice)return;try{localStorage.setItem('sl_codice',codice)}catch(e){}}
+  const r=await fetch('/api/azione',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...d,codice})});
+  const j=await r.json().catch(()=>({errore:'risposta non valida'}));
+  if(j.errore){alert(j.errore);if(r.status==403){codice=null;try{localStorage.removeItem('sl_codice')}catch(e){}}}
+  aggiorna();
+}
+function segnaFallito(){const g=$('f-gioc').value,l=$('f-luogo').value;if(g&&l&&confirm('Segnare fallito?'))azione({azione:'fallito',giocatore:g,luogo:l})}
+function statoPk(chiave,stato){if(stato)azione({azione:'stato_pokemon',chiave,stato})}
+
+function cellaIncontro(e){
+  if(!e)return '';
+  const et={catturato:'catturato',fallito:'fallito',incerto:'da confermare',in_corso:'in lotta'}[e.esito]||e.esito;
+  let h=`<div class="mini-pk">${img(e.specie)}<div>${e.specie?esc(e.nome_specie):'(a mano)'}<span class="et ${e.esito}">${et}</span>${e.shiny?'<span class="et">shiny</span>':''}<small>primo incontro${e.livello?' · Lv.'+e.livello:''}</small></div></div>`;
+  if(e.esito==='incerto')h+=`<div class="riga"><button class="mini" onclick="azione({azione:'esito_incontro',id:${e.id},esito:'catturato'})">preso</button><button class="mini" onclick="azione({azione:'esito_incontro',id:${e.id},esito:'fallito'})">fallito</button></div>`;
+  else h+=`<div><button class="mini" title="Non contare questo incontro" onclick="if(confirm('Annullare questo incontro?'))azione({azione:'esito_incontro',id:${e.id},esito:'annullato'})">annulla</button></div>`;
+  return h;
+}
+function cellaCattura(p){
+  if(!p)return '';
+  return `<div class="mini-pk">${img(p.specie)}<div>${esc(nome(p))}<span class="et ${p.stato}">${p.stato}</span>${p.irregolare?'<span class="et ko">fuori regola</span>':''}<small>${esc(p.nome_specie)}${p.livello?' · Lv.'+p.livello:''}</small></div>
+    <select class="mini" onchange="statoPk('${p.chiave}',this.value);this.value=''" title="Correggi a mano"><option value="">⋯</option><option value="squadra">squadra</option><option value="box">box</option><option value="morto">morto</option><option value="liberato">liberato</option>${p.irregolare?'<option value="valido">conta come valido</option>':''}</select></div>`;
+}
+
+function diagGiocatore(g,G){
+  const d=G.diagnostica; if(!d)return '';
+  const r=(ok,t)=>`<div><span class="s ${ok===true?'si':ok===false?'no':'forse'}">${ok===true?'✓':ok===false?'✗':'?'}</span>${t}</div>`;
+  const zonaNota=G.zona_nome&&!/^Zona /.test(G.zona_nome);
+  return `<div class="box diag" style="background:var(--pan2)"><b>${esc(g)}</b> · ROM ${esc(d.rom)} · ${esc(d.rom_nome||'')}<br>
+   ${r(d.fonte!=='nessuna',`indirizzi: ${esc(d.fonte)}${d.base!=null?' (base 0x'+Number(d.base).toString(16).toUpperCase()+')':''}`)}
+   ${r(d.squadra>0,`squadra letta: ${d.squadra} Pokémon`)}
+   ${r(zonaNota?true:null,`zona ${d.zona} / padre ${d.zona_padre} → ${esc(G.zona_nome||'?')}`)}
+   ${r(d.lotta_calibrata?true:null,d.lotta_calibrata?`indicatore di lotta trovato (0x${Number(d.lotta_calibrata).toString(16).toUpperCase()}) · ora: ${d.in_lotta?'in lotta':'fuori'}`:`indicatore di lotta in calibrazione: ${d.lotte_viste||0} lotte viste, ${d.lotta_candidati||0} candidati (si sistema da solo dopo 2-3 lotte e un cambio di zona)`)}
+   ${r(d.ultimo_nemico!=null?true:null,`ultimo nemico: specie ${d.ultimo_nemico??'-'} · allenatore ${d.ultimo_allenatore??'-'} (0 = selvatico)`)}
+   ${r(true,`medaglie lette: ${d.medaglie}`)}
+   ${r(d.pc>0?true:null,`PC: ${d.pc>0?d.pc+' Pokémon':'nessun Pokémon trovato (normale se il PC è vuoto: deposita un Pokémon per verificare)'}${d.pc_calibrato?' (calibrato)':''}`)}
+   ${r(d.run_rom===S.run||d.run_rom==null?true:false,`ROM della run ${d.run_rom??'(randomizer spento)'} · run attuale ${S.run}`)}</div>`;
+}
+
+function render(){
+  const G=Object.keys(S.giocatori);
+  $('run').textContent=`Run #${S.run}`+(S.stato==='in_corso'?'':S.stato==='vinta'?' · VINTA!':' · GAME OVER');
+  $('run').className='pill '+(S.stato==='game_over'?'ko':'ok');
+  $('giocatori').innerHTML=G.map(g=>{const x=S.giocatori[g];return `<div class="gioc"><b><span class="dot ${x.online?'on':''}"></span>${esc(g)}</b>
+     <span>${x.online?(x.emulatore?'in gioco':'emulatore senza partita'):'offline'}${x.zona_nome?' · '+esc(x.zona_nome):''}</span>
+     <span>${x.medaglie||0} medaglie · cap <b style="display:inline;color:var(--warn)">${x.cap}</b></span></div>`}).join('')||'<span class="gioc">Nessun giocatore collegato</span>';
+  $('box-avvisi').style.display=S.avvisi.length?'':'none';
+  $('avvisi').innerHTML=S.avvisi.map(a=>`<li>${esc(a)}</li>`).join('');
+  const P=Object.values(S.pokemon);
+  [0,1].forEach(i=>{const g=G[i];
+    const sq=P.filter(p=>p.giocatore===g&&p.stato==='squadra').sort((a,b)=>a.slot-b.slot);
+    const nb=P.filter(p=>p.giocatore===g&&p.stato==='box').length;
+    $('t-sq'+i).textContent=g?`Squadra di ${g} · ${nb} nel box`:`In attesa del giocatore ${i+1}`;
+    $('sq'+i).innerHTML=sq.map(p=>{const q=p.partner&&S.pokemon[p.partner];const pc=p.ps_max?Math.round(100*p.ps/p.ps_max):0;
+      return `<div class="card ${p.ps===0?'ko':''}"><span class="lv">Lv.${p.livello}</span>${img(p.specie)}<div class="nome">${esc(nome(p))}</div><div class="spec">${esc(p.nome_specie)} · ${esc(p.luogo_nome)}</div>
+      <div class="hp"><i style="width:${pc}%;background:${pc>50?'var(--ok)':pc>20?'var(--warn)':'var(--ko)'}"></i></div>${tipi(p.tipi)}
+      <div class="partner">${q?'⛓ '+esc(nome(q))+' ('+esc(q.giocatore)+')':'nessun partner'}</div></div>`}).join('')||'<span class="vuoto">Nessun Pokémon in squadra</span>';});
+  $('th-perc').innerHTML=`<tr><th>Luogo</th>${G.map(g=>`<th>${esc(g)}</th>`).join('')}<th>Coppia</th></tr>`;
+  const ST={attiva:'Legati',morta:'Morti',rotta:'Incontro fallito',in_attesa:'In attesa',in_lotta:'In lotta…'};
+  $('percorsi').innerHTML=S.percorsi.map(r=>`<tr><td>${esc(r.luogo_nome)}</td>${G.map(g=>{const x=r.giocatori[g]||{};
+      const inc=x.incontro&&!(x.cattura&&x.incontro.esito==='catturato'&&x.incontro.pid===x.cattura.pid)?cellaIncontro(x.incontro):'';
+      return `<td><div class="cella">${cellaCattura(x.cattura)}${inc}${!x.cattura&&!x.incontro?'<span class="vuoto">—</span>':''}</div></td>`}).join('')}
+      <td><span class="st ${r.stato}">${ST[r.stato]||r.stato}</span></td></tr>`).join('')||`<tr><td colspan="${G.length+2}" class="vuoto">Ancora niente: gli incontri selvatici e le catture compaiono qui da soli.</td></tr>`;
+  $('f-gioc').innerHTML=G.map(g=>`<option>${esc(g)}</option>`).join('');
+  if(!$('f-luogo').options.length)$('f-luogo').innerHTML=Object.entries(S.luoghi).map(([i,n])=>`<option value="${i}">${esc(n)}</option>`).join('');
+  $('eventi').innerHTML=S.eventi.map(e=>`<div class="ev-${e.tipo}"><time>${ora(e.t)}</time>${esc(e.testo)}</div>`).join('')||'<span class="vuoto">Niente da segnalare</span>';
+  // obiettivi
+  const TIPI_OB={palestra:'palestra',rivale:'rivale',plasma:'team plasma',lega:'superquattro',campione:'campionessa'};
+  $('th-ob').innerHTML=`<tr><th>Obiettivo</th>${G.map(g=>{const n=Object.keys(S.fatti[g]||{}).length;return `<th>${esc(g)} <span class="prog"><i style="width:${Math.round(100*n/S.obiettivi.length)}%"></i></span> ${n}/${S.obiettivi.length}</th>`}).join('')}</tr>`;
+  $('obiettivi').innerHTML=S.obiettivi.map(o=>`<tr><td>${esc(o.nome)}<span class="tipo-ob">${TIPI_OB[o.tipo]||o.tipo}</span></td>${G.map(g=>{const f=(S.fatti[g]||{})[o.id];
+     return `<td><span class="ob ${f?'fatto':''}" title="${f?'Clic per annullare':'Clic per segnare a mano'}" onclick="if(confirm('${f?'Annullare':'Segnare'} ${esc(o.nome)} per ${esc(g)}?'))azione({azione:'obiettivo',id:'${o.id}',giocatore:'${esc(g)}',valore:${f?'false':'true'}})">${f?'✓ '+ora(f.t):'—'}</span></td>`}).join('')}</tr>`).join('');
+  const morti=P.filter(p=>p.stato==='morto').sort((a,b)=>(a.morto||0)-(b.morto||0));
+  $('cimitero').innerHTML=morti.map(p=>`<div class="lapide">${img(p.specie)}<div><b>${esc(nome(p))}</b></div><small>${esc(p.giocatore)} · Lv.${p.livello}</small><small>${esc(p.causa)}</small></div>`).join('')||'<span class="vuoto">Nessuna vittima. Per ora.</span>';
+  $('storico').innerHTML=S.storico.length?S.storico.slice().reverse().map(r=>`<div style="margin:6px 0"><b>Run #${r.run}</b>${r.vinta?' 🏆':''} · ${r.medaglie} medaglie · ${r.catture} catture · ${r.morti} morti<br><small style="color:var(--tenue)">${esc(r.motivo)}</small></div>`).join(''):'<span class="vuoto">Questa è la prima run</span>';
+  for(const [id,k] of [['r-doppioni','doppioni'],['r-shiny','shiny']]){const el=$(id);el.checked=!!S.regole[k];el.onchange=()=>azione({azione:'regole',regole:{[k]:el.checked}})}
+  $('r-lega').checked=!!S.lega;$('r-lega').onchange=()=>azione({azione:'lega',valore:$('r-lega').checked});
+  const dg=G.map(g=>diagGiocatore(g,S.giocatori[g])).join('');
+  $('box-diag').style.display=dg?'':'none';$('diag').innerHTML=dg;
+  if(S.stato==='vinta'&&chiusoV!==S.run){$('vittoria').style.display='flex';$('vi-stat').textContent=`Run #${S.run} completata · ${morti.length} Pokémon caduti lungo la strada`}
+  else if(S.stato!=='vinta')$('vittoria').style.display='none';
+  if(S.stato==='game_over'&&chiuso!==S.run){$('gameover').style.display='flex';$('go-motivo').textContent=S.motivo;
+    $('go-stat').textContent=`Run #${S.run} · ${morti.length} Pokémon morti`}
+  else if(S.stato!=='game_over')$('gameover').style.display='none';
+}
+async function aggiorna(){try{const r=await fetch('/api/stato',{cache:'no-store'});const j=await r.json();if(j.errore){document.body.insertAdjacentHTML('afterbegin',`<p style="color:#f66;padding:10px">${esc(j.errore)}</p>`);return}S=j;render()}catch(e){console.log(e)}}
+aggiorna();setInterval(()=>{if(!document.hidden)aggiorna()},3000);
+</script>
+</body>
+</html>

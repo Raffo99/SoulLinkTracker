@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+sito/node_modules/
+sito/.wrangler/
+sito/.dev.vars
+rom/*.nds
+rom_randomizzate/
+randomizer/*.jar
+settings/*.rnqs
+bizhawk/calibrazione.txt
+bizhawk/salvataggio_base.SaveRAM

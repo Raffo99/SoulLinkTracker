@@ -1,0 +1,1 @@
+Metti qui la ROM originale (non randomizzata) e chiamala Nero2.nds (o cambia il nome in bizhawk/config.lua).
