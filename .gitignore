@@ -3,12 +3,7 @@ __pycache__/
 build/
 dist/
 *.spec
-sito/node_modules/
-sito/.wrangler/
-sito/.dev.vars
-rom/*.nds
-rom_randomizzate/
-randomizer/*.jar
-settings/*.rnqs
-bizhawk/calibrazione.txt
-bizhawk/salvataggio_base.SaveRAM
+*.nds
+*.jar
+*.rnqs
+*.SaveRAM

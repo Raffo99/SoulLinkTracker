@@ -97,15 +97,16 @@ class GestoreRun:
         shutil.copyfile(self.file_base, dest)
         return "Salvataggio di partenza copiato: premi Continua!"
 
-    def cattura_base(self, nome_rom: str) -> str | None:
-        """Lo script ha visto arrivare lo starter: il salvataggio in camera e' ancora sulla cartuccia."""
-        if not self.cfg["salta_inizio"] or self.file_base.exists() or not nome_rom:
+    def cattura_base(self, nome_rom: str, forza: bool = False) -> str | None:
+        """Copia da parte l'ultimo salvataggio fatto nel gioco (quello sulla cartuccia).
+        Automatico: quando arriva lo starter (se non c'e' ancora una partenza). Forzato: dal pulsante dell'app."""
+        if not nome_rom or (not forza and (not self.cfg["salta_inizio"] or self.file_base.exists())):
             return None
         src = self.cartella_saveram() / (nome_rom.replace("_", " ") + ".SaveRAM")
         if not src.exists():
             return f"Non trovo il salvataggio di BizHawk ({src})."
         dati = src.read_bytes()
         if self.vuoto(dati):
-            return "Non avevi salvato in camera prima dello starter: niente salvataggio di partenza per ora."
+            return "Non c'e' nessun salvataggio fatto nel gioco: salva prima della scena dello starter."
         self.file_base.write_bytes(dati)
-        return "Salvataggio di partenza creato! Dalla prossima run si parte dalla camera."
+        return "Salvataggio di partenza creato! Dalla prossima run si riparte da li'."

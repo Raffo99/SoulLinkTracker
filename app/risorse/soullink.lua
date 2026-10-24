@@ -275,6 +275,7 @@ end
 -- quando ricevi lo starter, il salvataggio in camera e' ancora quello sulla cartuccia: lo teniamo da parte
 local base_controllata = false
 local salva_base_pendente = nil   -- modalita' app: nome della ROM il cui salvataggio va tenuto da parte
+local salva_base_manuale = false  -- richiesto dal pulsante dell'app
 local function cattura_salvataggio_base(n_prima, n_ora)
   if APP then
     if not base_controllata and n_prima == 0 and n_ora >= 1 then
@@ -331,11 +332,15 @@ if APP then stato_rete.ultimo_msg = 0 end
 local function invia(dati)
   local ok, risp
   if APP then
-    if salva_base_pendente then dati.salva_base = salva_base_pendente end
+    if salva_base_pendente then
+      dati.salva_base = salva_base_pendente
+      dati.salva_base_manuale = salva_base_manuale
+      dati.salva_base_squadra = A.conta_squadra and (r32(A.conta_squadra) & 0xFF) or 0
+    end
     local okS, n = pcall(comm.socketServerSend, json(dati))
     if not okS or not n or n <= 0 then stato_rete.ok = false; return false end
     ok, risp = pcall(comm.socketServerResponse)
-    if ok and risp and risp ~= "" then salva_base_pendente = nil end
+    if ok and risp and risp ~= "" then salva_base_pendente, salva_base_manuale = nil, false end
   else
     if CFG.server == "" then stato_rete.errore = "server non impostato in config.lua"; return false end
     dati.codice, dati.giocatore, dati.ultimo_msg = CFG.codice, CFG.giocatore, stato_rete.ultimo_msg
@@ -360,6 +365,9 @@ local function invia(dati)
       stato_rete.ultimo_msg = tonumber(resto) or 0
     elseif cmd == "IGNORATO" then
       stato_rete.ignorato = resto
+    elseif cmd == "SALVABASE" then
+      pcall(client.saveram)                 -- scrive su disco l'ultimo salvataggio fatto nel gioco
+      salva_base_pendente, salva_base_manuale = gameinfo.getromname() or "", true
     elseif cmd == "AVVISO" then
       avvisa(resto, 12)
     elseif cmd == "DIAG" then

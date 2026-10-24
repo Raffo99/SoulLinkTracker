@@ -8,6 +8,12 @@ COLORI_TIPI = {
 BG, PAN, PAN2, BORDO, TESTO, TENUE = "#12131a", "#1b1d27", "#232634", "#2f3344", "#e8e9f0", "#9498ad"
 ACC, OK, WARN, KO, ORO = "#7c5cff", "#3ecf8e", "#f5b942", "#ff5c6c", "#ffd166"
 
+
+def alfa(col: str, a: float) -> str:
+    """Colore traslucido per i fogli di stile Qt (che leggono #AARRGGBB, non #RRGGBBAA)."""
+    c = col.lstrip("#")
+    return f"rgba({int(c[0:2], 16)},{int(c[2:4], 16)},{int(c[4:6], 16)},{a})"
+
 QSS = f"""
 * {{ font-family: "Segoe UI", "Inter", sans-serif; font-size: 10pt; color: {TESTO}; }}
 QMainWindow, QDialog, QWidget#radice {{ background: {BG}; }}
@@ -16,6 +22,15 @@ QGroupBox {{ margin-top: 22px; padding: 14px 8px 8px 8px; }}
 QWidget#interno {{ background: {PAN}; }}
 QGroupBox::title {{ subcontrol-origin: margin; subcontrol-position: top left; left: 10px; top: 4px; padding: 0 4px; color: {TENUE};
                     font-size: 8.5pt; font-weight: 600; letter-spacing: 1px; }}
+QFrame#barra {{ background: {PAN}; border: 1px solid {BORDO}; border-radius: 12px; }}
+QFrame#giocatore {{ background: {PAN2}; border: 1px solid {BORDO}; border-radius: 10px; }}
+QFrame#carta {{ background: {PAN}; border: 1px solid {BORDO}; border-radius: 12px; }}
+QFrame#coppia {{ background: {PAN2}; border: 1px solid {BORDO}; border-radius: 10px; }}
+QFrame#coppia[allarme="true"] {{ border-color: #6b5320; background: #2a2416; }}
+QLabel#sezione {{ color: {TENUE}; font-size: 8pt; font-weight: 700; letter-spacing: 1px; }}
+QLabel#grande {{ font-size: 14pt; font-weight: 700; }}
+QLabel#numero {{ font-size: 13pt; font-weight: 600; color: {TENUE}; font-family: Consolas, "Cascadia Mono", monospace; }}
+QLabel#chip {{ background: {PAN2}; border: 1px solid {BORDO}; border-radius: 9px; padding: 3px 10px; }}
 QFrame#pk {{ background: {PAN2}; border: 1px solid {BORDO}; border-radius: 8px; }}
 QFrame#pk[ko="true"] {{ background: #1c1d24; }}
 QLabel#titolo {{ font-size: 15pt; font-weight: 700; }}

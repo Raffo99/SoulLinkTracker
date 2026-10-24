@@ -1,7 +1,4 @@
 """Finestra delle impostazioni (si apre da sola al primo avvio)."""
-import json
-import urllib.request
-
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QGroupBox, QHBoxLayout,
                                QLabel, QLineEdit, QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
@@ -42,19 +39,22 @@ class Impostazioni(QDialog):
             l.setWordWrap(True)
             v.addWidget(l)
 
-        g1 = QGroupBox("GIOCATORE E SITO")
+        g1 = QGroupBox("GIOCATORE E PARTITA CONDIVISA (SUPABASE)")
         f1 = QFormLayout(g1)
         self.giocatore = QLineEdit(cfg["giocatore"])
         self.giocatore.setPlaceholderText("diverso da quello dell'amico")
-        self.server = QLineEdit(cfg["server"])
-        self.server.setPlaceholderText("https://soullink.pages.dev")
+        self.sb_url = QLineEdit(cfg.get("supabase_url", ""))
+        self.sb_url.setPlaceholderText("https://xxxxxxxx.supabase.co")
+        self.sb_chiave = QLineEdit(cfg.get("supabase_chiave", ""))
+        self.sb_chiave.setPlaceholderText("sb_publishable_…  (Project Settings → API Keys)")
         self.codice = QLineEdit(cfg["codice"])
-        self.codice.setEchoMode(QLineEdit.Password)
+        self.codice.setPlaceholderText("una parola segreta uguale per tutti e due, es. pikachu-2026-raffo")
         prova = QPushButton("Prova collegamento")
         prova.clicked.connect(self._prova)
         f1.addRow("Il tuo nome", self.giocatore)
-        f1.addRow("Indirizzo del sito", self.server)
-        f1.addRow("Codice segreto", self.codice)
+        f1.addRow("Indirizzo Supabase", self.sb_url)
+        f1.addRow("Chiave pubblica", self.sb_chiave)
+        f1.addRow("Codice della partita", self.codice)
         f1.addRow("", prova)
         v.addWidget(g1)
 
@@ -80,7 +80,7 @@ class Impostazioni(QDialog):
         g3 = QGroupBox("ALTRO")
         f3 = QFormLayout(g3)
         self.dati = CampoFile(cfg["cartella_dati"], cartella=True)
-        self.salta = QCheckBox("Salta l'inizio del gioco (salvataggio in camera prima dello starter)")
+        self.salta = QCheckBox("Salta l'inizio del gioco (riparti da un salvataggio fatto prima dello starter)")
         self.salta.setChecked(cfg["salta_inizio"])
         self.saveram = CampoFile(cfg["cartella_saveram"], cartella=True)
         self.saveram.e.setPlaceholderText("vuoto = <cartella di BizHawk>/NDS/SaveRAM")
@@ -108,19 +108,22 @@ class Impostazioni(QDialog):
         self.rom_manuale.setEnabled(not r)
 
     def _prova(self):
-        url = self.server.text().strip().rstrip("/")
+        from .archivio import Archivio, ErroreArchivio
+        a = Archivio(self.sb_url.text(), self.sb_chiave.text(), self.codice.text())
         try:
-            st = json.loads(urllib.request.urlopen(urllib.request.Request(url + "/api/stato", headers={"User-Agent": "SoulLinkTracker-App"}), timeout=8).read())
-            if "errore" in st:
-                raise RuntimeError(st["errore"])
-            QMessageBox.information(self, "Collegamento", f"Funziona! Run attuale: #{st['run']}, giocatori: {', '.join(st['giocatori']) or 'nessuno'}.")
-        except Exception as e:
-            QMessageBox.warning(self, "Collegamento", f"Il sito non risponde:\n{e}")
+            v = a.versione()
+            p = a.presenze()
+            if v is None:
+                QMessageBox.information(self, "Collegamento", "Funziona! La partita con questo codice non esiste ancora: verrà creata al primo avvio.")
+            else:
+                QMessageBox.information(self, "Collegamento", f"Funziona! Partita trovata. Giocatori visti: {', '.join(p) or 'nessuno'}.")
+        except ErroreArchivio as e:
+            QMessageBox.warning(self, "Collegamento", f"Non funziona:\n{e}")
 
     def _salva(self):
         c = self.cfg
-        c.update(giocatore=self.giocatore.text().strip(), server=self.server.text().strip().rstrip("/"),
-                 codice=self.codice.text().strip(), bizhawk=self.bizhawk.text(), randomizza=self.randomizza.isChecked(),
+        c.update(giocatore=self.giocatore.text().strip(), supabase_url=self.sb_url.text().strip().rstrip("/"),
+                 supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), bizhawk=self.bizhawk.text(), randomizza=self.randomizza.isChecked(),
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), rom_manuale=self.rom_manuale.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
                  salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked())

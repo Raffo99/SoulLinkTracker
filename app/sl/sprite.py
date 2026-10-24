@@ -31,11 +31,29 @@ class Sprite(QObject):
         if f.exists():
             pm = QPixmap(str(f))
             if not pm.isNull():
-                pm = pm.scaled(lato, lato, Qt.KeepAspectRatio, Qt.FastTransformation)
+                pm = self._ritaglia(pm).scaled(lato, lato, Qt.KeepAspectRatio, Qt.FastTransformation)
                 self._mem[chiave] = pm
                 return pm
         self._scarica(specie)
         return None
+
+    @staticmethod
+    def _ritaglia(pm):
+        """Toglie il bordo trasparente (gli sprite originali sono 96x96 con molto vuoto attorno)."""
+        img = pm.toImage()
+        w, h = img.width(), img.height()
+        xs, ys = [], []
+        for y in range(h):
+            for x in range(w):
+                if img.pixelColor(x, y).alpha() > 10:
+                    xs.append(x)
+                    ys.append(y)
+        if not xs:
+            return pm
+        x0, x1, y0, y1 = min(xs), max(xs), min(ys), max(ys)
+        lato = max(x1 - x0, y1 - y0) + 3
+        cx, cy = (x0 + x1) // 2, (y0 + y1) // 2
+        return pm.copy(cx - lato // 2, cy - lato // 2, lato, lato)
 
     def _scarica(self, specie):
         with self._lock:

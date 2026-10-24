@@ -25,7 +25,8 @@ def cartella_documenti() -> Path:
 
 PREDEFINITA = {
     "giocatore": "",
-    "server": "",
+    "supabase_url": "",
+    "supabase_chiave": "",
     "codice": "",
     "bizhawk": "C:/BizHawk/EmuHawk.exe",
     "java": "java",
@@ -56,19 +57,17 @@ class Config(dict):
         tmp.write_text(json.dumps(dict(self), indent=2, ensure_ascii=False), "utf-8")
         os.replace(tmp, self.file)
 
-    @property
-    def server(self) -> str:
-        return (self.get("server") or "").strip().rstrip("/")
-
     def mancanti(self) -> list:
         """Campi indispensabili ancora vuoti (per aprire le impostazioni al primo avvio)."""
         m = []
         if not self.get("giocatore"):
             m.append("nome giocatore")
-        if not self.server:
-            m.append("indirizzo del sito")
+        if not (self.get("supabase_url") or "").strip():
+            m.append("indirizzo Supabase")
+        if not (self.get("supabase_chiave") or "").strip():
+            m.append("chiave Supabase")
         if not self.get("codice"):
-            m.append("codice")
+            m.append("codice della partita")
         if not Path(self.get("bizhawk") or "").exists():
             m.append("BizHawk (EmuHawk.exe)")
         if self.get("randomizza"):
