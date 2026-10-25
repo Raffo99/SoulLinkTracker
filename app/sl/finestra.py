@@ -336,7 +336,7 @@ class Finestra(QMainWindow):
         self._luoghi_avvisati = set()
         self._lotte_avvisate = set()
         self._controllo_visto = None
-        MiniPokemon.apri = self._apri_pokemon
+        MiniPokemon.apri = self._scheda_pokemon
         self.p_percorsi.apri_pokemon = self._apri_pokemon
         self.p_cimitero.itemDoubleClicked.connect(lambda it: it.data(Qt.UserRole) and self._apri_pokemon(it.data(Qt.UserRole)))
         self._in_primo_piano = True
@@ -544,6 +544,7 @@ class Finestra(QMainWindow):
             self._box_gioco = list(dati["box"])
         if dati.get("squadra"):
             self._squadra_gioco = list(dati["squadra"])
+            self._in_gui.emit(self._pubblica_squadra)          # siamo nel thread del ponte
             if self._det_lotta:
                 self._dettagli.emit(self._det_lotta)
         if "lotta_dettagli" in dati:                     # solo per il tracker della lotta, non per la partita
@@ -694,6 +695,7 @@ class Finestra(QMainWindow):
                     L.imposta_dati_rom((inc or {}).get("zona_luogo"), nomi.get("luoghi"), nomi.get("allenatori"))
                     self.c_lotta.imposta_impara(dati)
                     self._incontri_rom = inc
+                    self._pubblica_squadra()
                     if self._ultimo_stato:
                         self._controlla_luogo(self._ultimo_stato, self.cfg["giocatore"])
             self._in_gui.emit(fatto)
@@ -785,6 +787,8 @@ class Finestra(QMainWindow):
         self.c_obiettivo.aggiorna(st, io)
         self.c_luogo.aggiorna(st, io)
         self._controlla_luogo(st, io)
+        from .scheda import SchedaPokemon
+        SchedaPokemon.aggiorna_tutte()
         if st["avvisi"]:
             righe = [f"⚠&nbsp;&nbsp;{html.escape(a)}" for a in st["avvisi"][:3]]
             if len(st["avvisi"]) > 3:
@@ -1127,6 +1131,35 @@ class Finestra(QMainWindow):
                            "Ho un backup di quel momento: vuoi ripartire da lì?",
                            si="Riprendi da lì", no="Usa il salvataggio del gioco"):
             self._carica_backup(b)
+
+    def _scheda_pokemon(self, chiave):
+        from .scheda import SchedaPokemon
+        for s in SchedaPokemon.aperte:              # già aperta: la porto davanti
+            if s.k == chiave:
+                s.raise_()
+                s.activateWindow()
+                return
+        s = SchedaPokemon(self, chiave)
+        s.show()
+
+    def _pubblica_squadra(self):
+        """La mia squadra con mosse e statistiche va nella presenza: così gli altri vedono la scheda dei miei Pokémon."""
+        from .lotta import riassunto_impara
+        campi = ("pid", "specie", "soprannome", "livello", "ps", "ps_max", "mosse", "pp", "pp_su", "stat", "abilita",
+                 "natura", "stato_alt", "esperienza")
+        imp = self.c_lotta.impara
+        lista = []
+        for p in self._squadra_gioco:
+            if p.get("uovo"):
+                continue
+            d = {k: p.get(k) for k in campi if p.get(k) is not None}
+            r = riassunto_impara(imp.get(p.get("specie")), p.get("livello")) if imp else None
+            if r:
+                d["impara"] = r
+            lista.append(d)
+        self.sincro.imposta_presenza(squadra=lista)
+        from .scheda import SchedaPokemon
+        SchedaPokemon.aggiorna_tutte()
 
     def _apri_pokemon(self, chiave):
         from .correzioni import DialogoPokemon

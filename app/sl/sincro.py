@@ -203,12 +203,16 @@ class Sincro(QObject):
                     x["zona_nome"] = L.nome_luogo(x["luogo_attuale"])
                 if inf.get("diagnostica"):
                     x["diagnostica"] = inf["diagnostica"]
+                if inf.get("squadra") is not None:
+                    x["squadra_dett"] = inf["squadra"]
             else:
                 x["online"] = False
             if g == self.cfg.get("giocatore"):   # per me stesso i dati locali sono più freschi della presenza
                 x["online"] = True
                 x["emulatore"] = bool(self._presenza.get("emulatore"))
                 x["attivita"] = self._presenza.get("attivita") if x["emulatore"] else None
+                if self._presenza.get("squadra") is not None:
+                    x["squadra_dett"] = self._presenza["squadra"]
                 if self._presenza.get("zona") is not None:
                     x["zona"] = self._presenza["zona"]
                     x["luogo_attuale"] = L.luogo_incontro(s, {"zona": x["zona"]})

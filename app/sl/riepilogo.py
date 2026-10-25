@@ -487,14 +487,15 @@ class CartaLuogo(Carta):
 
 # ----------------------------------------------------------------------------------------------
 class MiniPokemon(QWidget):
-    apri = None            # funzione chiamata con la chiave del Pokémon al doppio clic (la imposta la finestra)
+    apri = None            # funzione chiamata con la chiave del Pokémon al clic (la imposta la finestra)
 
     def __init__(self, p, sprite, allinea_destra=False, giocatore=None, colore_g=ACC):
         super().__init__()
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.chiave = (p or {}).get("chiave")
         if self.chiave:
-            self.setToolTip("Doppio clic per modificare")
+            self.setToolTip("Clicca per la scheda: statistiche, mosse, abilità")
+            self.setCursor(Qt.PointingHandCursor)
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(10)
@@ -540,12 +541,12 @@ class MiniPokemon(QWidget):
             h.addLayout(col, 1)
 
 
-def _doppio_clic(self, ev):
-    if self.chiave and MiniPokemon.apri:
+def _clic(self, ev):
+    if ev.button() == Qt.LeftButton and self.chiave and MiniPokemon.apri and self.rect().contains(ev.position().toPoint()):
         MiniPokemon.apri(self.chiave)
 
 
-MiniPokemon.mouseDoubleClickEvent = _doppio_clic
+MiniPokemon.mouseReleaseEvent = _clic
 
 
 COLORI_EVENTI = {"morte": KO, "gameover": KO, "legame": "#b9a8ff", "cattura": OK, "allarme": WARN,

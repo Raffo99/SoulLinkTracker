@@ -75,6 +75,7 @@ local BIANCO2 = CODICE_ROM:sub(1, 3) == "IRD"
 local OFF = {
   conta_squadra = 0x19724, squadra = 0x19728, zona = 0x41B5C, zona_padre = 0x41B44,
   allenatore_nemico = 0x5262E, nemico = 0x53B70, medaglie = 0x21A24,
+  lotta_dati = 0x526A8,     -- puntatori ai Pokemon in campo durante la lotta (BTL_POKEPARAM), dall'Ironmon Tracker
   box = 0x19724 - 0x18E04 + 0x400,   -- il PC in RAM ha la stessa disposizione del salvataggio
   medicine = 0x19724 - 0x18E04 + 0x18BD8,   -- tasca Medicine della borsa (salvataggio 0x18400 + 0x7D8, 48 posti)
 }
@@ -129,6 +130,7 @@ local function leggi_pkm(addr, con_lotta)
     pk.stat = { bat[0x92], bat[0x94], bat[0x96], bat[0x98], bat[0x9A] }    -- att, dif, vel, att.sp, dif.sp
     pk.stato_alt = bat[0x88] & 0xFF
     pk.abilita = b("A", 0x0C) >> 8
+    pk.natura = (b("B", 0x18) >> 8) & 0xFF
   end
   return pk
 end
@@ -683,21 +685,63 @@ local function nemici_allenatore()
   return out
 end
 
+-- Pokemon in campo durante la lotta: il gioco tiene un puntatore per ogni posto (giocatore +0, +4; avversario +0x1C, +0x20)
+-- a una struttura con PS attuali, PP, modifiche alle statistiche e un puntatore al Pokemon vero.
+local function in_campo(off)
+  if not A.lotta_dati then return nil end
+  local p = r32(A.lotta_dati + off) & 0xFFFFFF
+  if p < 0x1000 or p + 0x140 > 0x400000 then return nil end
+  local illusione = r32(p + 4) & 0xFFFFFF          -- Illusione (Zoroark): si mostra quello che il gioco fa vedere
+  local pkm = r32(p) & 0xFFFFFF
+  if illusione >= 0x1000 and illusione < 0x400000 then pkm = illusione end
+  if pkm < 0x1000 or pkm + 0xDC > 0x400000 then return nil end
+  local ps, ps_max = r16(p + 0x10), r16(p + 0x0E)
+  if ps_max == 0 or ps > ps_max then return nil end
+  local st1, st2 = r32(p + 0xFC), r32(p + 0x100)
+  local t = { pid = r32(pkm), ps = ps, ps_max = ps_max, pp = {}, mosse = {},
+              stadi = { st1 & 0xFF, (st1 >> 8) & 0xFF, (st2) & 0xFF, (st1 >> 16) & 0xFF, (st1 >> 24) & 0xFF } }  -- att, dif, vel, att.sp, dif.sp
+  for i = 0, 3 do
+    t.mosse[i + 1] = r16(p + 0x104 + i * 14)
+    t.pp[i + 1] = r8(p + 0x104 + i * 14 + 2)
+  end
+  return t
+end
+
 local function dettagli_lotta()
   if not lotta.attiva or not A.nemico then return nil end
-  local nemici = {}
+  local nemici, per_pid = {}, {}
   for i = 0, 5 do
     local pk = leggi_pkm(A.nemico + i * 0xDC, true)
     if not pk then break end
     nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps }
+    per_pid[pk.pid] = #nemici
     if not lotta.allenatore and lotta.letto then break end      -- selvatico: uno solo
   end
-  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici }
+  -- chi e' in campo adesso (solo se il puntatore porta davvero a uno dei Pokemon della lotta)
+  lotta.ps_visti = lotta.ps_visti or {}
+  for _, off in ipairs({ 0x1C, 0x20 }) do
+    local c = in_campo(off)
+    local i = c and per_pid[c.pid]
+    if i then
+      nemici[i].in_campo = true
+      lotta.ps_visti[i] = c.ps
+    end
+  end
+  for i, ps in pairs(lotta.ps_visti) do if nemici[i] then nemici[i].ps = ps end end   -- PS veri di chi si e' visto
+  local mio = nil
+  for _, off in ipairs({ 0x00, 0x04 }) do
+    local c = in_campo(off)
+    if c and contiene(squadra, c.pid) then mio = c; break end
+  end
+  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio }
 end
 local function firma_dettagli(d)
   if not d then return "-" end
   local t = { tostring(d.allenatore), tostring(d.letto) }
-  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps end
+  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps .. (n.in_campo and "*" or "") end
+  if d.mio then
+    t[#t + 1] = d.mio.pid .. ":" .. d.mio.ps .. ":" .. table.concat(d.mio.pp, ",") .. ":" .. table.concat(d.mio.stadi, ",")
+  end
   return table.concat(t, ";")
 end
 local ultima_firma_dettagli = nil

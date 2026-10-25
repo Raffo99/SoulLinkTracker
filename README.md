@@ -81,11 +81,15 @@ Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cance
 Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
 
 ## Tracker della lotta
-Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco), mai quali. Quando un Pokémon dell'allenatore va KO, il successivo compare solo qualche secondo dopo, quando entra in campo:
-- la tua squadra, ognuno con il miglior moltiplicatore che ha contro l'avversario: clicca quello che hai in campo;
-- il Pokémon scelto: tipi, PS, stato e **abilità con la descrizione**, quante mosse impara in tutto salendo di livello e **tra quanti livelli impara la prossima** (lette dalla vostra ROM randomizzata; col mouse sopra vedi l'elenco delle prossime);
+Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco, grigie quando vanno KO), mai quali. Il tracker legge dalla memoria del gioco **chi è in campo**, da una parte e dall'altra: quando l'allenatore manda un altro Pokémon o tu ne cambi uno, il riquadro lo segue da solo.
+- la tua squadra, ognuno con il miglior moltiplicatore che ha contro l'avversario: è selezionato quello in campo, ma puoi cliccarne un altro per vedere come se la caverebbe;
+- il Pokémon scelto: tipi, PS, stato, **abilità con la descrizione**, quante mosse impara in tutto salendo di livello e **tra quanti livelli impara la prossima** (quale non si dice; lette dalla vostra ROM randomizzata);
+- le sue **statistiche**: verde quella aumentata dalla natura, rossa quella diminuita, tra parentesi le modifiche in lotta (+1, −2…);
 - le sue mosse: il nome è **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), una **stella dorata** se è dello stesso tipo del Pokémon (STAB), poi tipo, potenza, moltiplicatore totale (efficacia × 1,5 se STAB: per esempio superefficace + STAB = ×3) e PP.
-I dati delle mosse sono quelli di Nero 2/Bianco 2. PS e PP sono quelli di inizio lotta (durante la lotta il gioco li tiene altrove). La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
+PS, PP e modifiche alle statistiche del Pokémon in campo sono in tempo reale. La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
+
+## Scheda dei Pokémon
+Nelle **Coppie** clicca un Pokémon, tuo o di un amico, per aprire la sua scheda: PS ed esperienza che manca al prossimo livello, abilità, natura, statistiche con le barre, mosse (tipo, categoria, potenza, precisione, PP), quante mosse impara e tra quanti livelli la prossima, i legami. La scheda si aggiorna da sola mentre giocate. Statistiche e mosse ci sono per i Pokémon in squadra; quelle degli amici arrivano dalla loro app (servono la versione 5.3 o successiva e il gioco aperto almeno una volta). Dalla scheda, **Correggi…** apre le correzioni a mano di prima.
 
 ## Nomi di luoghi e allenatori
 I nomi dei luoghi, a quale luogo appartiene ogni zona e i nomi degli allenatori si leggono dalla ROM, quindi sono quelli della versione italiana e non compaiono più zone con solo un numero. Perché i luoghi coincidano per tutti, usate tutti la stessa versione dell'app (l'aggiornamento automatico ci pensa da solo).
@@ -98,7 +102,7 @@ Alcune notifiche sono più grandi e restano di più:
 Se l'app non è in primo piano, l'icona lampeggia nella barra delle applicazioni.
 
 ## Correggere il tracker
-- **Doppio clic** su un Pokémon (nelle Coppie o nel Cimitero), oppure tasto destro → *Modifica…* nei Percorsi: puoi cambiare lo stato, riportarlo in vita insieme ai suoi legati, cambiare il luogo della cattura (cambia anche il legame), contarlo come cattura valida o toglierlo dal tracker. Ogni correzione resta scritta nel diario.
+- **Correggi…** nella scheda di un Pokémon (clic nelle Coppie), doppio clic nel Cimitero, oppure tasto destro → *Modifica…* nei Percorsi: puoi cambiare lo stato, riportarlo in vita insieme ai suoi legati, cambiare il luogo della cattura (cambia anche il legame), contarlo come cattura valida o toglierlo dal tracker. Ogni correzione resta scritta nel diario.
 - **Altro → Controlla il tracker con il gioco…** confronta i tuoi Pokémon con squadra e PC letti dalla memoria: Pokémon morti nel tracker ma vivi nel gioco, liberati che sono ricomparsi, Pokémon che non trovo più. Se dopo un backup ricaricato (o all'avvio del gioco) le cose non tornano, la finestra si apre da sola.
 
 ## Regole opzionali

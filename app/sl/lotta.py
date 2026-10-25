@@ -37,6 +37,69 @@ TABELLA = {
 STATI = {1: "SON", 2: "SON", 3: "SON", 4: "SON", 5: "SON", 6: "SON", 7: "SON"}
 
 
+# nature: (nome, statistica aumentata, statistica diminuita) con le statistiche nell'ordine att, dif, vel, att.sp, dif.sp
+NOMI_NATURE = ["Ardita", "Schiva", "Audace", "Decisa", "Birbona", "Sicura", "Docile", "Placida", "Scaltra", "Fiacca",
+               "Timida", "Lesta", "Seria", "Allegra", "Ingenua", "Modesta", "Mite", "Quieta", "Ritrosa", "Ardente",
+               "Calma", "Gentile", "Vivace", "Cauta", "Furba"]
+NOMI_STAT = ["Att", "Dif", "Vel", "Att.Sp", "Dif.Sp"]
+NOMI_STAT_LUNGHI = ["Attacco", "Difesa", "Velocità", "Attacco Speciale", "Difesa Speciale"]
+
+
+def natura(n):
+    """(nome, indice aumentata, indice diminuita) o None; aumentata == diminuita vuol dire neutra."""
+    if n is None or not 0 <= n < 25:
+        return None
+    return NOMI_NATURE[n], n // 5, n % 5
+
+
+def html_statistiche(ps_max, stat, nat=None, stadi=None, sep=" · "):
+    """«PS 41 · Att 22▲ · Dif 18 ...»: verde la statistica aumentata dalla natura, rossa quella diminuita;
+    tra parentesi le modifiche in lotta (+1, -2...)."""
+    if not stat:
+        return ""
+    nn = natura(nat)
+    pezzi = [f"<span style='color:{TENUE}'>PS</span> <b>{ps_max}</b>"] if ps_max else []
+    ordine = [0, 1, 3, 4, 2]                         # come nel gioco: Att, Dif, Att.Sp, Dif.Sp, Vel
+    for i in ordine:
+        if i >= len(stat):
+            continue
+        col = TESTO
+        if nn and nn[1] != nn[2]:
+            col = OK if i == nn[1] else KO if i == nn[2] else TESTO
+        extra = ""
+        if stadi and i < len(stadi) and stadi[i] not in (None, 6):
+            d = stadi[i] - 6
+            extra = f" <b style='color:{OK if d > 0 else KO}'>({'+' if d > 0 else ''}{d})</b>"
+        pezzi.append(f"<span style='color:{TENUE}'>{NOMI_STAT[i]}</span> <b style='color:{col}'>{stat[i]}</b>{extra}")
+    testo = sep.join(pezzi)
+    if nn:
+        testo += f"{sep}<span style='color:{TENUE}'>natura</span> {nn[0]}"
+    return testo
+
+
+def riassunto_impara(lista, livello):
+    """{"totale": mosse imparate salendo di livello, "tra": livelli alla prossima (None se finite), "lv": livello della prossima}."""
+    from . import rom as R
+    if not lista:
+        return None
+    p = R.prossime(lista, livello or 0)
+    return {"totale": p["totale"], "tra": p["tra"], "lv": p["prossima"][0] if p["prossima"] else None}
+
+
+def html_impara(d):
+    """«Impara 9 mosse in tutto · la prossima tra 3 livelli (Lv.24)»: quale mossa non si dice."""
+    if not d:
+        return ""
+    testo = f"<span style='color:{TENUE}'>Impara</span> <b>{d['totale']}</b> <span style='color:{TENUE}'>mosse in tutto</span>"
+    if d.get("tra"):
+        tra = "al prossimo livello" if d["tra"] == 1 else f"tra&nbsp;{d['tra']}&nbsp;livelli"
+        testo += (f" · <span style='color:{TENUE}'>la prossima</span> <b style='color:#b9a8ff'>{tra}</b>"
+                  f" <span style='color:{TENUE}'>(Lv.{d['lv']})</span>")
+    else:
+        testo += f" · <span style='color:{TENUE}'>le ha già imparate tutte</span>"
+    return testo
+
+
 def stato_alterato(v):
     v = v or 0
     if v & 0x07:
@@ -175,6 +238,10 @@ class CartaLotta(QFrame):
 
     def aggiorna(self, det, squadra):
         cambio_lotta = (det or {}).get("allenatore") != (self.det or {}).get("allenatore") or not self.det
+        attivo_prima = ((self.det or {}).get("mio") or {}).get("pid")
+        attivo_ora = ((det or {}).get("mio") or {}).get("pid")
+        if attivo_ora and attivo_ora != attivo_prima:
+            self.sel_mio = None                    # hai cambiato Pokémon nel gioco: il tracker lo segue
         self.det = det
         self.squadra = [p for p in (squadra or []) if not p.get("uovo")]
         if cambio_lotta:
@@ -185,11 +252,18 @@ class CartaLotta(QFrame):
     # ---------- scelte predefinite: il primo Pokémon vivo, l'avversario in campo ----------
     def _mio(self):
         vivi = [p for p in self.squadra if (p.get("ps") or 0) > 0] or self.squadra
-        if self.sel_mio is not None:
-            for p in self.squadra:
-                if p.get("pid") == self.sel_mio:
-                    return p
+        attivo = ((self.det or {}).get("mio") or {}).get("pid")
+        for pid in (self.sel_mio, attivo):
+            if pid is not None:
+                for p in self.squadra:
+                    if p.get("pid") == pid:
+                        return p
         return vivi[0] if vivi else None
+
+    def _live(self, mio):
+        """PS, PP e modifiche alle statistiche in tempo reale, se è il Pokémon in campo."""
+        m = (self.det or {}).get("mio") or {}
+        return m if mio and m.get("pid") == mio.get("pid") else {}
 
     def _nemico(self):
         """L'avversario in campo. Quando va KO si continua a mostrarlo per qualche secondo: il successivo
@@ -199,6 +273,11 @@ class CartaLotta(QFrame):
         nemici = (self.det or {}).get("nemici") or []
         if not nemici:
             return None, None
+        in_campo = [k for k, n in enumerate(nemici) if n.get("in_campo")]
+        if in_campo:                                # il gioco dice chi è in campo: niente supposizioni
+            i = self.sel_nemico if self.sel_nemico in in_campo else in_campo[0]
+            self._idx_nem, self._ko_da = i, None
+            return i, nemici[i]
         i = self._idx_nem if self._idx_nem is not None and self._idx_nem < len(nemici) else 0
         if (nemici[i].get("ps") or 0) == 0:
             if self._ko_da is None:
@@ -284,23 +363,23 @@ class CartaLotta(QFrame):
         tipi_mio = tipi_di(mio["specie"])
 
         # --- il tuo Pokémon: nome, tipi, PS, stato, abilità
+        live = self._live(mio)
         nome_mio = mio.get("soprannome") or L.info(mio["specie"])["nome"]
         st, cst = stato_alterato(mio.get("stato_alt"))
         righe = [f"<b style='font-size:11pt'>{nome_mio}</b> <span style='color:{TENUE}'>Lv.{mio.get('livello')}</span>"
                  f"&nbsp; {' '.join(pillola_tipo(x) for x in tipi_mio)}"
-                 f"&nbsp; <span style='color:{TENUE}'>PS {mio.get('ps')}/{mio.get('ps_max')}</span>"
+                 f"&nbsp; <span style='color:{TENUE}'>PS {live.get('ps', mio.get('ps'))}/{mio.get('ps_max')}</span>"
                  + (f"&nbsp; <b style='color:{cst};font-size:8pt'>{st}</b>" if st else "")]
         ab = (L._DATI.get("abilita") or {}).get(str(mio.get("abilita") or 0))
         if ab:
             righe.append(f"<span style='color:{TENUE}'>Abilità:</span> <b>{ab[0]}</b>"
                          + (f" <span style='color:{TENUE}'>— {ab[1]}</span>" if ab[1] else ""))
-        riga_imp, tip_imp = self._riga_impara(mio)
+        riga_imp = self._riga_impara(mio)
         if riga_imp:
             righe.append(riga_imp)
+        righe.append(html_statistiche(mio.get("ps_max"), mio.get("stat"), mio.get("natura"), live.get("stadi")))
         info = QLabel("<br>".join(righe))
         info.setWordWrap(True)
-        if tip_imp:
-            info.setToolTip(tip_imp)
         self.v.addWidget(info)
 
         # --- le sue mosse: nome verde se superefficace, stella dorata se STAB, moltiplicatore e PP vicini
@@ -331,44 +410,26 @@ class CartaLotta(QFrame):
             molt = QLabel(f"<b style='color:{c}'>{tx}</b>")
             molt.setToolTip(desc)
             pp_max = mo["pp"] * (5 + ((mio.get("pp_su") or [0, 0, 0, 0])[k] or 0)) // 5 if mo["pp"] else 0
-            pp_ora = (mio.get("pp") or [0, 0, 0, 0])[k]
+            pp_ora = (live.get("pp") or mio.get("pp") or [0, 0, 0, 0])[k]
             cpp = KO if pp_ora == 0 else WARN if pp_max and pp_ora <= pp_max // 4 else TENUE
             pp = QLabel(f"<span style='color:{cpp}'>PP {pp_ora}/{pp_max}</span>")
             for c_, w in enumerate((n, tipo, pot, molt, pp)):
                 g.addWidget(w, k, c_)
         g.setColumnStretch(5, 1)                 # tutto vicino a sinistra
         self.v.addLayout(g)
-        nota = QLabel(f"<span style='color:{SPENTO};font-size:8pt'>Clicca il Pokémon che hai in campo. "
-                      "PS e PP sono quelli di inizio lotta.</span>")
+        if (self.det or {}).get("mio"):
+            t_nota = ("Il tracker segue il Pokémon che hai in campo: clicca un altro per vedere come se la caverebbe. "
+                      "PS, PP e modifiche alle statistiche (tra parentesi) sono in tempo reale.")
+        else:
+            t_nota = "Clicca il Pokémon che hai in campo. PS e PP sono quelli di inizio lotta."
+        nota = QLabel(f"<span style='color:{SPENTO};font-size:8pt'>{t_nota}</span>")
         nota.setWordWrap(True)
         self.v.addWidget(nota)
         self.v.addStretch()
 
     def _riga_impara(self, mio):
-        """«Impara 14 mosse · prossima: Lanciafiamme tra 3 livelli (Lv.24)» dalla ROM randomizzata del giocatore."""
-        from . import rom as R
         lista = self.impara.get(mio.get("specie"))
-        if not lista:
-            return "", ""
-        lv = mio.get("livello") or 0
-        p = R.prossime(lista, lv)
-        testo = f"<span style='color:{TENUE}'>Impara</span> <b>{p['totale']}</b> <span style='color:{TENUE}'>mosse in tutto</span>"
-        if p["prossima"]:
-            l_pross, m_pross = p["prossima"]
-            stesse = [m for l, m in lista if l == l_pross]
-            nomi = [(mossa(m) or {}).get("nome", f"#{m}") for m in stesse]
-            tra = "al prossimo livello" if p["tra"] == 1 else f"tra&nbsp;{p['tra']}&nbsp;livelli"
-            testo += (f" · <span style='color:{TENUE}'>la prossima</span> <b style='color:#b9a8ff'>{tra}</b>"
-                      f" <span style='color:{TENUE}'>(Lv.{l_pross}):</span> <b>{', '.join(nomi)}</b>")
-        else:
-            testo += f" · <span style='color:{TENUE}'>le ha già imparate tutte</span>"
-        future = sorted((l, m) for l, m in lista if l > lv and l > 1)
-        tip = ""
-        if future:
-            tip = "Prossime mosse:\n" + "\n".join(f"Lv.{l}  {(mossa(m) or {}).get('nome', f'#{m}')}" for l, m in future[:12])
-            if len(future) > 12:
-                tip += f"\n… e altre {len(future) - 12}"
-        return testo, tip
+        return html_impara(riassunto_impara(lista, mio.get("livello"))) if lista else ""
 
     def imposta_impara(self, dati):
         self.impara = dati or {}

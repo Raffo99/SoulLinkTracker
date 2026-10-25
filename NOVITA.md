@@ -1,4 +1,3 @@
-- Nomi dei luoghi presi dalla ROM: niente più zone con solo un numero, e ogni zona finisce nel luogo giusto. Aggiornate tutti, così i luoghi coincidono per tutti.
-- Nomi corretti dei capipalestra di Nero 2: Komor, Velia, Anemone (e Antemia dei Superquattro).
-- Schede dei giocatori in alto: in lotta mostrano contro chi si combatte (anche il nome degli allenatori normali, per esempio "Pupa Lucia") e, sotto, il luogo; in giro il luogo e il prossimo obiettivo. I nomi lunghi finiscono con "…" invece di essere tagliati.
-- Anche il tracker della lotta mostra il nome dell'allenatore.
+- Tracker della lotta: segue da solo chi è in campo, da entrambe le parti (anche quando l'allenatore manda il Pokémon successivo o tu cambi il tuo). PS, PP e modifiche alle statistiche del tuo Pokémon in campo sono in tempo reale.
+- Nel tracker della lotta ci sono le statistiche del tuo Pokémon (con la natura e le modifiche in lotta). Della prossima mossa da imparare resta solo tra quanti livelli arriva, non quale.
+- Scheda dei Pokémon: clicca un Pokémon nelle Coppie, anche di un amico, per vedere statistiche, natura, abilità, mosse ed esperienza. Si aggiorna da sola. Le correzioni a mano sono nel pulsante "Correggi…" della scheda.
