@@ -1,12 +1,12 @@
 # Crea SoulLinkTracker.exe su Windows a ogni modifica.
-# - L'exe si scarica da: Actions -> ultima esecuzione -> Artifacts -> SoulLinkTracker
-# - Se crei un tag che inizia con "v" (es. v3.0.0) viene pubblicato anche come Release.
+# - L'exe si scarica sempre da: Actions -> ultima esecuzione -> Artifacts -> SoulLinkTracker
+# - Se la versione in app/sl/__init__.py (VERSIONE = "...") è nuova, pubblica da sola la Release vX.Y.Z
+#   con l'exe e con le novità scritte in NOVITA.md: le app degli amici la trovano e si aggiornano.
 name: Crea exe
 
 on:
   push:
     branches: [main, master]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -41,8 +41,28 @@ jobs:
           name: SoulLinkTracker
           path: dist/SoulLinkTracker.exe
 
+      - name: Leggi la versione
+        id: versione
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(python -c "import re;print(re.search(r'VERSIONE = \"(.+?)\"', open('app/sl/__init__.py', encoding='utf-8').read()).group(1))")
+          echo "versione=$VER" >> "$GITHUB_OUTPUT"
+          if gh release view "v$VER" > /dev/null 2>&1; then
+            echo "nuova=no" >> "$GITHUB_OUTPUT"
+            echo "La release v$VER esiste già: niente da pubblicare."
+          else
+            echo "nuova=si" >> "$GITHUB_OUTPUT"
+            echo "Versione nuova: pubblico la release v$VER."
+          fi
+
       - name: Pubblica la release
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: steps.versione.outputs.nuova == 'si'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.versione.outputs.versione }}
+          name: Soul Link Tracker ${{ steps.versione.outputs.versione }}
+          body_path: NOVITA.md
           files: dist/SoulLinkTracker.exe
+          make_latest: true

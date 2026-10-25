@@ -16,6 +16,8 @@ from sl.stile import carica_font, foglio
 def scegli_partita():
     """All'avvio: quale partita giocare (se Supabase è già configurato)."""
     cfg = Config()
+    if "--aggiornato" in sys.argv and cfg.get("codice"):
+        return                      # riavvio dopo un aggiornamento: si riprende la stessa partita
     if not (cfg.get("giocatore") and (cfg.get("supabase_url") or "").strip() and (cfg.get("supabase_chiave") or "").strip()):
         return                      # primo avvio: ci pensano le impostazioni
     if cfg.get("codice") and cfg.get("chiedi_partita", True) is False:

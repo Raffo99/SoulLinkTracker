@@ -22,7 +22,7 @@ from .pannelli import (PannelloCimitero, PannelloDiagnostica, PannelloDiario, Pa
                        PannelloStatistiche)
 from .ponte import Ponte
 from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, MiniPokemon, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
-from . import dialoghi
+from . import aggiorna, dialoghi
 from . import logica as L
 from .backup import TIPI as TIPI_BACKUP, GestoreBackup
 from .lotta import CartaLotta
@@ -73,6 +73,7 @@ class Finestra(QMainWindow):
     _risposte = Signal(object)        # risposte dello script ai comandi (backup fatto, stato caricato)
     _in_gui = Signal(object)          # funzione da eseguire nel thread dell'interfaccia
     _dettagli = Signal(object)        # dettagli della lotta in corso (o None a lotta finita)
+    _aggiornamento = Signal(object, str, bool)   # info sulla nuova versione (o None), errore, controllo chiesto a mano
 
     def __init__(self):
         super().__init__()
@@ -277,6 +278,7 @@ class Finestra(QMainWindow):
         m_altro.addAction("Backup e ripristino…", self._apri_backup)
         m_altro.addAction("Controlla il tracker con il gioco…", lambda: self._controllo(False))
         m_altro.addAction("Cambia partita…", self._cambia_partita)
+        m_altro.addAction("Cerca aggiornamenti…", lambda: self._cerca_aggiornamenti(True))
         m_altro.addSeparator()
         m_altro.addAction("Reset totale…", self._reset_totale)
         self.b_altro.setMenu(m_altro)
@@ -306,6 +308,13 @@ class Finestra(QMainWindow):
         self._risposte.connect(self._gestisci_risposte)
         self._in_gui.connect(lambda f: f())
         self._dettagli.connect(self._mostra_lotta)
+        self._aggiornamento.connect(self._esito_aggiornamento)
+        self._riavvia_con = None
+        aggiorna.pulisci()
+        QTimer.singleShot(15000, lambda: self._cerca_aggiornamenti(False))
+        if "--aggiornato" in sys.argv:
+            QTimer.singleShot(1500, lambda: (self._log(f"Aggiornato alla versione {VERSIONE}", OK),
+                                             self.notifiche.mostra(f"Aggiornato alla versione {VERSIONE}", OK, 8)))
         self._squadra_gioco = []
         self._box_gioco = None
         self._det_lotta = None
@@ -972,6 +981,54 @@ class Finestra(QMainWindow):
         from .finestra_backup import DialogoBackup
         DialogoBackup(self).exec()
 
+    # ================================================================ aggiornamenti
+    def _cerca_aggiornamenti(self, a_mano):
+        if not a_mano and self.cfg.get("aggiorna_auto", True) is False:
+            return
+
+        def lavoro():
+            try:
+                self._aggiornamento.emit(aggiorna.controlla(), "", a_mano)
+            except Exception as e:
+                self._aggiornamento.emit(None, str(e), a_mano)
+        threading.Thread(target=lavoro, daemon=True).start()
+
+    def _esito_aggiornamento(self, info, errore, a_mano):
+        if errore:
+            self._log(f"Aggiornamenti: {errore}", WARN if a_mano else TENUE)
+            if a_mano:
+                dialoghi.avviso(self, "Non riesco a cercare aggiornamenti", errore, "avviso")
+            return
+        if not info:
+            self._log(f"Aggiornamenti: hai già l'ultima versione ({VERSIONE})", TENUE)
+            if a_mano:
+                dialoghi.avviso(self, "Hai già l'ultima versione", f"Soul Link Tracker {VERSIONE} è la versione più recente.", "ok")
+            return
+        self._log(f"È disponibile la versione {info['versione']}", ORO)
+        if not a_mano and self.cfg.get("salta_versione") == info["versione"]:
+            return
+        if not aggiorna.e_exe():
+            dialoghi.avviso(self, f"È disponibile la versione {info['versione']}",
+                            "Stai usando l'app dai sorgenti: scarica la nuova versione da GitHub.", "info")
+            return
+        if self._in_chiusura or self._occupato:
+            QTimer.singleShot(60000, lambda: self._esito_aggiornamento(info, "", a_mano))
+            return
+        from .finestra_aggiorna import DialogoAggiornamento
+        d = DialogoAggiornamento(self, info)
+        d.exec()
+        if d.scelta == "salta":
+            self.cfg["salta_versione"] = info["versione"]
+            self.cfg.salva()
+        elif d.scelta == "aggiorna" and d.nuovo:
+            try:
+                self._riavvia_con = aggiorna.installa(d.nuovo)
+            except aggiorna.ErroreAggiornamento as e:
+                dialoghi.avviso(self, "Aggiornamento non installato", str(e), "errore")
+                return
+            self._log(f"Versione {info['versione']} installata: riavvio", OK)
+            self.close()                              # backup, chiusura di BizHawk, poi riavvio (in closeEvent)
+
     # ================================================================ partite
     def _cambia_partita(self):
         if self.cfg.mancanti() and not self.cfg.get("supabase_url"):
@@ -1070,3 +1127,8 @@ class Finestra(QMainWindow):
         self.sincro.ferma()
         self.ponte.chiudi()
         ev.accept()
+        if self._riavvia_con:                         # aggiornamento: parte la nuova versione
+            try:
+                aggiorna.riavvia(self._riavvia_con)
+            except Exception as e:
+                dialoghi.avviso(None, "Riavvio non riuscito", f"Avvia a mano {self._riavvia_con}.\n\n{e}", "errore")

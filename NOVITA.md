@@ -1,0 +1,5 @@
+- Aggiornamento automatico: all'avvio l'app controlla se c'è una versione nuova su GitHub e, se vuoi, si aggiorna da sola (backup della partita, chiusura di BizHawk e riavvio).
+- Tracker della lotta: dell'allenatore si vedono solo quanti Pokémon ha, mai quali; il Pokémon successivo compare solo quando entra in campo.
+- Il moltiplicatore delle mosse conta anche lo STAB (superefficace + stesso tipo = ×3).
+- Tracker della lotta solo con i tuoi Pokémon: abilità con descrizione, mosse verdi se superefficaci, stella dorata se STAB.
+- Le lotte lunghe non spariscono più dal riquadro.

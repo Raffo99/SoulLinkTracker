@@ -124,6 +124,10 @@ class Impostazioni(QDialog):
                                "con il controller tenendo l'app in secondo piano.")
         self.blocca.setChecked(cfg.get("blocca_input", True) is not False)
         f3.addRow("", self.blocca)
+        self.agg = QCheckBox("Cerca aggiornamenti all'avvio")
+        self.agg.setToolTip("Se su GitHub c'è una versione nuova te lo chiede e, se vuoi, si aggiorna da sola")
+        self.agg.setChecked(cfg.get("aggiorna_auto", True) is not False)
+        f3.addRow("", self.agg)
         v.addWidget(g3)
 
         v.addStretch()
@@ -173,6 +177,6 @@ class Impostazioni(QDialog):
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
                  salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked(),
-                 backup_minuti=self._minuti[self.backup.currentIndex()], blocca_input=self.blocca.isChecked())
+                 backup_minuti=self._minuti[self.backup.currentIndex()], blocca_input=self.blocca.isChecked(), aggiorna_auto=self.agg.isChecked())
         c.salva()
         self.accept()

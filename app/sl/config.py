@@ -42,6 +42,8 @@ PREDEFINITA = {
     "chiedi_partita": True,
     "backup_minuti": 10,             # backup automatico (0 = mai; alla chiusura si fa sempre)
     "blocca_input": True,            # i tasti non arrivano al gioco quando usi un'altra finestra
+    "aggiorna_auto": True,           # all'avvio controlla se su GitHub c'è una versione nuova
+    "salta_versione": "",
 }
 
 

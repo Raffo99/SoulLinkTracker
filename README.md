@@ -25,10 +25,21 @@ Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzl
 Il piano gratuito basta e avanza: l'app scarica la partita solo quando cambia qualcosa (pochi KB a sessione). Supabase **mette in pausa i progetti gratuiti dopo un periodo senza uso**. Se succede, l'app segnala l'errore: entra su supabase.com e premi *Restore*.
 
 ## 2. L'exe (GitHub lo crea per voi)
-1. Crea un repository su **github.com** (anche privato) e caricaci il contenuto di questa cartella. Con GitHub Desktop: *Add existing repository* → *Publish*. Se trascini i file a mano, carica anche la cartella `.github`.
-2. Nella scheda **Actions** parte **"Crea exe"**: dopo 3-4 minuti apri l'esecuzione e scarica **Artifacts → SoulLinkTracker**.
+1. Crea un repository su **github.com** (pubblico, se vuoi gli aggiornamenti automatici) e caricaci il contenuto di questa cartella. Con GitHub Desktop: *Add existing repository* → *Publish*. Se trascini i file a mano, carica anche la cartella `.github`.
+2. Nella scheda **Actions** parte **"Crea exe"**: dopo 3-4 minuti l'exe è nella pagina **Releases** della repo (e anche in *Actions → Artifacts → SoulLinkTracker*).
 
 ROM, randomizer e salvataggi non finiscono mai su GitHub: sono esclusi da `.gitignore`.
+
+## Aggiornamenti automatici
+All'avvio l'app guarda su GitHub se c'è una versione nuova. Se c'è, mostra le novità e chiede: **Aggiorna e riavvia** scarica il nuovo exe, lo controlla, fa un backup della partita, chiude BizHawk e riparte da sola con la stessa partita. Puoi anche dire *Più tardi* o *Salta questa versione*, cercare a mano da **Altro → Cerca aggiornamenti…** e spegnere il controllo in *Impostazioni*.
+
+Perché funzioni la repo GitHub deve essere **pubblica** (le versioni di una repo privata non si vedono senza credenziali). L'exe va tenuto in una cartella tua (per esempio Documenti o il Desktop), non in *Programmi*, così l'app può sostituirlo.
+
+**Per pubblicare una versione nuova** (lo fa chi gestisce la repo):
+1. cambia il numero in `app/sl/__init__.py` (per esempio `VERSIONE = "5.1.0"`);
+2. scrivi le novità in `NOVITA.md`;
+3. carica le modifiche sul ramo `main`.
+GitHub crea l'exe e pubblica da solo la Release `v5.1.0`: le app di tutti la trovano al prossimo avvio. Se il numero non cambia, l'exe si crea lo stesso (in *Actions*) ma non viene pubblicato come aggiornamento.
 
 ## 3. Primo avvio
 Ti serve: **BizHawk 2.9+**, **Java a 64 bit** (adoptium.net, "Windows x64"), **Universal Pokémon Randomizer ZX** e la tua **ROM** di Nero 2.
@@ -69,12 +80,11 @@ Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cance
 Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
 
 ## Tracker della lotta
-Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta:
-- l'avversario con tipi, livello, PS, stato (SON, PAR, SCO…) e se il tuo Pokémon è più veloce;
-- le **sue mosse** e quanto fanno male al tuo Pokémon (×2, ×½, ★ = stesso tipo);
-- la tua squadra, ognuno con la sua **mossa migliore** contro l'avversario;
-- le **mosse** del Pokémon scelto: tipo, fisica/speciale, potenza, efficacia (×4, ×2, ×1, ×½, ×0), **STAB** e PP.
-Clicca un tuo Pokémon o un Pokémon avversario per analizzare quello. I dati delle mosse sono quelli di Nero 2/Bianco 2. PS e PP dei tuoi Pokémon sono quelli di inizio lotta (durante la lotta il gioco li tiene altrove).
+Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco), mai quali. Quando un Pokémon dell'allenatore va KO, il successivo compare solo qualche secondo dopo, quando entra in campo:
+- la tua squadra, ognuno con il miglior moltiplicatore che ha contro l'avversario: clicca quello che hai in campo;
+- il Pokémon scelto: tipi, PS, stato e **abilità con la descrizione**;
+- le sue mosse: il nome è **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), una **stella dorata** se è dello stesso tipo del Pokémon (STAB), poi tipo, potenza, moltiplicatore totale (efficacia × 1,5 se STAB: per esempio superefficace + STAB = ×3) e PP.
+I dati delle mosse sono quelli di Nero 2/Bianco 2. PS e PP sono quelli di inizio lotta (durante la lotta il gioco li tiene altrove). La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
 
 ## Correggere il tracker
 - **Doppio clic** su un Pokémon (nelle Coppie o nel Cimitero), oppure tasto destro → *Modifica…* nei Percorsi: puoi cambiare lo stato, riportarlo in vita insieme ai suoi legati, cambiare il luogo della cattura (cambia anche il legame), contarlo come cattura valida o toglierlo dal tracker. Ogni correzione resta scritta nel diario.
@@ -93,7 +103,7 @@ Quando usi un'altra finestra (Discord, il browser…) il gioco ignora la tastier
 Per run senza farmare: **Regole → Esperienza solo dagli allenatori (sperimentale)**. Vale per tutti i giocatori della partita.
 - **Selvatici**: non danno esperienza. Niente livelli che salgono e poi tornano indietro: il gioco proprio non la assegna.
 - **Allenatori**: danno quanto basta per portare il tuo **primo Pokémon** della squadra al livello del Pokémon più forte di quell'allenatore, senza mai superare il level cap. Se sei già a quel livello o sopra, niente esperienza. Se in lotta usi più Pokémon, se la dividono come sempre. Livelli, mosse nuove ed evoluzioni li gestisce il gioco normalmente.
-- All'inizio di ogni lotta con un allenatore una notifica dice quanta esperienza darà (per esempio "esperienza ×3, verso il Lv.15"). In alto compare la scritta *EXP solo dagli allenatori*.
+- All'inizio di ogni lotta con un allenatore una notifica dice quanta esperienza darà (per esempio "esperienza ×3"), senza svelare niente della sua squadra. In alto compare la scritta *EXP solo dagli allenatori*.
 
 Come funziona: come i codici Action Replay "moltiplicatore di esperienza", durante la lotta l'app cambia due istruzioni del calcolo dell'esperienza (×0 per i selvatici, ×N per gli allenatori) e a fine lotta le rimette com'erano. Le tocca solo se trova esattamente il codice atteso; la prima volta lo cerca da sola e poi si ricorda dove sta. Se nella tua versione non lo trova, te lo dice e l'esperienza resta normale.
 
