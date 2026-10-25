@@ -471,6 +471,7 @@ end
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
 SOLO_ALLENATORI = false         -- modalita' sperimentale: esperienza solo dagli allenatori
 BLOCCA_INPUT = false            -- true quando l'utente sta usando un'altra finestra
+VELOCITA = nil                  -- percentuale impostata dall'app (100 = normale)
 CONDIVIDI_ESP = false           -- regola opzionale: Condividi esperienza per tutta la squadra
 if APP then stato_rete.ultimo_msg = 0 end
 local function invia(dati)
@@ -537,6 +538,10 @@ local function invia(dati)
       local prima = CONDIVIDI_ESP
       CONDIVIDI_ESP = resto == "1"
       if prima and not CONDIVIDI_ESP then ripristina_condividi(); lotta.condividi = nil end
+    elseif cmd == "VELOCITA" then
+      -- velocita' scelta nell'app (le scorciatoie di BizHawk per la velocita' sono spente)
+      local v = tonumber(resto)
+      if v and v ~= VELOCITA then VELOCITA = v; pcall(client.speedmode, v) end
     elseif cmd == "FOCUS" then
       BLOCCA_INPUT = resto == "0"           -- l'app non e' in primo piano: i tasti non vanno al gioco
     elseif cmd == "MODO" then
@@ -925,7 +930,7 @@ while true do
   end
   -- con l'app: un contatto leggero ogni 15 frame, per sapere subito se l'utente e' passato a un'altra finestra
   if APP and fc % 30 == 15 and fc - ultimo_invio >= 10 then
-    invia({ ping = true })                 -- non tocca ultimo_invio: i dati veri partono come sempre
+    invia({ ping = true, fc = fc })        -- non tocca ultimo_invio: i dati veri partono come sempre
   end
   if fc % 30 == 0 then
     risolvi()

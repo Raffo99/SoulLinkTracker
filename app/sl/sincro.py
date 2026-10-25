@@ -57,6 +57,8 @@ def _arricchisci(a):
     o = L.OBIETTIVO_DA_ID.get(a.get("allenatore") or -1)
     if o:
         a["nome_allenatore"] = o["nome"]
+    elif a.get("allenatore") and L.NOMI_ALLENATORI.get(a["allenatore"]):
+        a["chi_allenatore"] = L.NOMI_ALLENATORI[a["allenatore"]]
     return a
 
 

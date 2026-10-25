@@ -1,5 +1,4 @@
-- Aggiornamento automatico: all'avvio l'app controlla se c'è una versione nuova su GitHub e, se vuoi, si aggiorna da sola (backup della partita, chiusura di BizHawk e riavvio).
-- Tracker della lotta: dell'allenatore si vedono solo quanti Pokémon ha, mai quali; il Pokémon successivo compare solo quando entra in campo.
-- Il moltiplicatore delle mosse conta anche lo STAB (superefficace + stesso tipo = ×3).
-- Tracker della lotta solo con i tuoi Pokémon: abilità con descrizione, mosse verdi se superefficaci, stella dorata se STAB.
-- Le lotte lunghe non spariscono più dal riquadro.
+- Nomi dei luoghi presi dalla ROM: niente più zone con solo un numero, e ogni zona finisce nel luogo giusto. Aggiornate tutti, così i luoghi coincidono per tutti.
+- Nomi corretti dei capipalestra di Nero 2: Komor, Velia, Anemone (e Antemia dei Superquattro).
+- Schede dei giocatori in alto: in lotta mostrano contro chi si combatte (anche il nome degli allenatori normali, per esempio "Pupa Lucia") e, sotto, il luogo; in giro il luogo e il prossimo obiettivo. I nomi lunghi finiscono con "…" invece di essere tagliati.
+- Anche il tracker della lotta mostra il nome dell'allenatore.

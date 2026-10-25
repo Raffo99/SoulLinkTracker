@@ -157,6 +157,7 @@ class CartaLotta(QFrame):
         self.det, self.squadra = None, []
         self.sel_mio, self.sel_nemico = None, None
         self._idx_nem, self._ko_da = None, None
+        self.impara = {}                      # specie -> [(livello, mossa)] letti dalla ROM randomizzata
         self.v = QVBoxLayout(self)
         self.v.setContentsMargins(18, 14, 18, 14)
         self.v.setSpacing(8)
@@ -223,7 +224,8 @@ class CartaLotta(QFrame):
         # --- titolo: contro chi (solo quello che si vede anche nel gioco)
         testa = QHBoxLayout()
         if det.get("allenatore"):
-            titolo = f"LOTTA CONTRO {o['nome'].upper()}" if o else "LOTTA CONTRO UN ALLENATORE"
+            chi = o["nome"] if o else L.NOMI_ALLENATORI.get(det.get("allenatore"))
+            titolo = f"LOTTA CONTRO {chi.upper()}" if chi else "LOTTA CONTRO UN ALLENATORE"
         else:
             titolo = "LOTTA CON UN SELVATICO"
         t = QLabel(titolo)
@@ -292,8 +294,13 @@ class CartaLotta(QFrame):
         if ab:
             righe.append(f"<span style='color:{TENUE}'>Abilità:</span> <b>{ab[0]}</b>"
                          + (f" <span style='color:{TENUE}'>— {ab[1]}</span>" if ab[1] else ""))
+        riga_imp, tip_imp = self._riga_impara(mio)
+        if riga_imp:
+            righe.append(riga_imp)
         info = QLabel("<br>".join(righe))
         info.setWordWrap(True)
+        if tip_imp:
+            info.setToolTip(tip_imp)
         self.v.addWidget(info)
 
         # --- le sue mosse: nome verde se superefficace, stella dorata se STAB, moltiplicatore e PP vicini
@@ -336,6 +343,37 @@ class CartaLotta(QFrame):
         nota.setWordWrap(True)
         self.v.addWidget(nota)
         self.v.addStretch()
+
+    def _riga_impara(self, mio):
+        """«Impara 14 mosse · prossima: Lanciafiamme tra 3 livelli (Lv.24)» dalla ROM randomizzata del giocatore."""
+        from . import rom as R
+        lista = self.impara.get(mio.get("specie"))
+        if not lista:
+            return "", ""
+        lv = mio.get("livello") or 0
+        p = R.prossime(lista, lv)
+        testo = f"<span style='color:{TENUE}'>Impara</span> <b>{p['totale']}</b> <span style='color:{TENUE}'>mosse in tutto</span>"
+        if p["prossima"]:
+            l_pross, m_pross = p["prossima"]
+            stesse = [m for l, m in lista if l == l_pross]
+            nomi = [(mossa(m) or {}).get("nome", f"#{m}") for m in stesse]
+            tra = "al prossimo livello" if p["tra"] == 1 else f"tra&nbsp;{p['tra']}&nbsp;livelli"
+            testo += (f" · <span style='color:{TENUE}'>la prossima</span> <b style='color:#b9a8ff'>{tra}</b>"
+                      f" <span style='color:{TENUE}'>(Lv.{l_pross}):</span> <b>{', '.join(nomi)}</b>")
+        else:
+            testo += f" · <span style='color:{TENUE}'>le ha già imparate tutte</span>"
+        future = sorted((l, m) for l, m in lista if l > lv and l > 1)
+        tip = ""
+        if future:
+            tip = "Prossime mosse:\n" + "\n".join(f"Lv.{l}  {(mossa(m) or {}).get('nome', f'#{m}')}" for l, m in future[:12])
+            if len(future) > 12:
+                tip += f"\n… e altre {len(future) - 12}"
+        return testo, tip
+
+    def imposta_impara(self, dati):
+        self.impara = dati or {}
+        if self.isVisible() and self.det:
+            self._disegna()
 
     def _scegli_mio(self, pid):
         self.sel_mio = pid

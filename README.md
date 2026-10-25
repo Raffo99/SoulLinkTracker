@@ -60,16 +60,17 @@ L'app usa una configurazione di BizHawk tutta sua. In quella configurazione è a
 Il salvataggio di partenza viene copiato su ogni ROM nuova, così si riparte da lì premendo *Continua*. Lo starter resta quello randomizzato della ROM nuova, perché lo ricevi dopo.
 
 - **Automatico**: se nella prima run salvi prima di prendere lo starter, quando lo ricevi l'app mette da parte quell'ultimo salvataggio.
-- **Scegliendo tu il punto** (consigliato, così si risparmia più tempo): salva il più vicino possibile alla **Vedetta di Alisopoli**, prima della scena dello starter. Poi premi **Salvataggio di partenza → Usa il salvataggio attuale come partenza**. Se lo starter è già in squadra, l'app lo rifiuta.
+- **Scegliendo tu il punto** (consigliato, così si risparmia più tempo): salva il più vicino possibile alla **Vedetta di Alisopoli**, prima della scena dello starter. Poi premi **Partenza → Usa il salvataggio attuale come partenza**. Se lo starter è già in squadra, l'app lo rifiuta.
 
 Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cancellarlo dallo stesso menu.
 
 ## 5. L'interfaccia
 - **In alto**: run, durata, catture, legami vivi e morti. Poi una scheda per ogni giocatore con le medaglie, i PS della squadra, il livello più alto rispetto al level cap e **cosa sta facendo in questo momento**:
-  - **IN GIRO** con la zona in cui si trova;
-  - **SELVATICO** con il Pokémon incontrato, il livello e i PS rimasti;
-  - **ALLENATORE** durante una lotta contro un allenatore qualsiasi;
-  - **BOSS** contro capopalestra, rivale, Team Plasma, Superquattro e Iris (la scheda si colora);
+  - **IN GIRO** con il luogo in cui si trova e, sotto, il prossimo obiettivo;
+  - **SELVATICO** con il Pokémon incontrato e il livello;
+  - **ALLENATORE** con il nome dell'allenatore (per esempio *Pupa Lucia*);
+  - **BOSS** con il nome del capopalestra, del rivale, del Team Plasma, dei Superquattro o di Iris (la scheda si colora);
+  - in lotta, sotto, c'è anche il luogo (📍) dove si combatte;
   - **IN ATTESA** se l'app è aperta ma il gioco no, **OFFLINE** se l'app è chiusa.
   Lo stato degli altri arriva in 3–4 secondi. Passa col mouse su una scheda per vedere la squadra intera.
 - **Prossimo obiettivo**: chi devi battere e il livello massimo adesso, più i progressi degli altri.
@@ -82,9 +83,19 @@ Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arriv
 ## Tracker della lotta
 Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco), mai quali. Quando un Pokémon dell'allenatore va KO, il successivo compare solo qualche secondo dopo, quando entra in campo:
 - la tua squadra, ognuno con il miglior moltiplicatore che ha contro l'avversario: clicca quello che hai in campo;
-- il Pokémon scelto: tipi, PS, stato e **abilità con la descrizione**;
+- il Pokémon scelto: tipi, PS, stato e **abilità con la descrizione**, quante mosse impara in tutto salendo di livello e **tra quanti livelli impara la prossima** (lette dalla vostra ROM randomizzata; col mouse sopra vedi l'elenco delle prossime);
 - le sue mosse: il nome è **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), una **stella dorata** se è dello stesso tipo del Pokémon (STAB), poi tipo, potenza, moltiplicatore totale (efficacia × 1,5 se STAB: per esempio superefficace + STAB = ×3) e PP.
 I dati delle mosse sono quelli di Nero 2/Bianco 2. PS e PP sono quelli di inizio lotta (durante la lotta il gioco li tiene altrove). La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
+
+## Nomi di luoghi e allenatori
+I nomi dei luoghi, a quale luogo appartiene ogni zona e i nomi degli allenatori si leggono dalla ROM, quindi sono quelli della versione italiana e non compaiono più zone con solo un numero. Perché i luoghi coincidano per tutti, usate tutti la stessa versione dell'app (l'aggiornamento automatico ci pensa da solo).
+
+## Notifiche importanti
+Alcune notifiche sono più grandi e restano di più:
+- quando entri in un luogo dove **devi ancora fare la cattura** (una volta per luogo; solo dove ci sono selvatici, letto dalla ROM; se ci sono solo con Surf o pesca arriva una notifica normale);
+- all'inizio di una **lotta importante** (capipalestra, rivale, Team Plasma, Lega), con il level cap e chi lo supera;
+- quando tu o un altro **battete uno degli obiettivi importanti**.
+Se l'app non è in primo piano, l'icona lampeggia nella barra delle applicazioni.
 
 ## Correggere il tracker
 - **Doppio clic** su un Pokémon (nelle Coppie o nel Cimitero), oppure tasto destro → *Modifica…* nei Percorsi: puoi cambiare lo stato, riportarlo in vita insieme ai suoi legati, cambiare il luogo della cattura (cambia anche il legame), contarlo come cattura valida o toglierlo dal tracker. Ogni correzione resta scritta nel diario.
@@ -95,6 +106,9 @@ Dal menu **Regole** scegli cosa usare: tutorial, clausola doppioni, clausola shi
 
 ## Tempo della run
 Il tempo in alto conta solo quando almeno un giocatore sta giocando: se nessuno ha il gioco aperto si ferma.
+
+## Velocità del gioco
+In basso c'è **Velocità** (×1, ×2, ×3, ×4, ×8 o il più veloce possibile): sostituisce le scorciatoie di BizHawk per la velocità, che sono spente perché scattavano anche scrivendo in altre finestre. **Tab** tenuto premuto resta l'avanti veloce di BizHawk. Tra parentesi c'è la velocità **vera** del gioco in quel momento: se resta più bassa di quella scelta, è il processore del PC che non ce la fa (il Nintendo DS è pesante da emulare; la RAM conta poco).
 
 ## Tasti
 Quando usi un'altra finestra (Discord, il browser…) il gioco ignora la tastiera, anche se BizHawk è incastrato nell'app. Le scorciatoie di BizHawk che potevano scattare per sbaglio (F = avanza di un frame, Pausa, F1–F10…) sono disattivate. Se giochi con il controller tenendo l'app in secondo piano, togli la spunta in *Impostazioni*.

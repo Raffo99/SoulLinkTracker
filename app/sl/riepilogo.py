@@ -111,6 +111,21 @@ class Medaglie(QWidget):
         self.setToolTip(f"{n} medaglie su 8")
 
 
+class Elisa(QLabel):
+    """Testo semplice su una riga che, se non ci sta, finisce con «…» invece di essere tagliato."""
+
+    def __init__(self, testo=""):
+        super().__init__(testo)
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+
+    def paintEvent(self, e):
+        from PySide6.QtGui import QPainter
+        p = QPainter(self)
+        p.setPen(self.palette().color(self.foregroundRole()))
+        r = self.contentsRect()
+        p.drawText(r, int(Qt.AlignLeft | Qt.AlignVCenter), self.fontMetrics().elidedText(self.text(), Qt.ElideRight, r.width()))
+
+
 def pill(testo, colore):
     """Etichetta colorata dentro un testo ricco (QLabel non ha il padding sugli span: si usano spazi fissi)."""
     return (f"<span style='background:{alfa(colore, 0.18)};color:{colore};font-size:8pt;font-weight:700;'>"
@@ -118,26 +133,30 @@ def pill(testo, colore):
 
 
 def stato_giocatore(x):
-    """(etichetta, colore, descrizione) di cosa sta facendo un giocatore adesso."""
+    """(etichetta, colore, cosa, sotto) di un giocatore adesso. In lotta «cosa» è contro chi combatte e «sotto»
+    il luogo; in giro «cosa» è il luogo e «sotto» il prossimo obiettivo. Testo semplice, accorciato con «…»."""
     if not x.get("online"):
-        return "OFFLINE", TENUE, "non connesso"
+        return "OFFLINE", TENUE, "non connesso", ""
     if not x.get("emulatore"):
-        return "IN ATTESA", TENUE, "gioco chiuso"
+        return "IN ATTESA", TENUE, "gioco chiuso", ""
+    luogo = x.get("zona_nome") or ""
+    dove = f"📍 {luogo}" if luogo else ""
     a = x.get("attivita") or {}
     if a.get("lotta"):
         sp = a.get("nome_specie") or "?"
         lv = f" Lv.{a['livello']}" if a.get("livello") else ""
         all_ = a.get("allenatore")
         if a.get("nome_allenatore"):
-            return "BOSS", KO, f"contro <b>{a['nome_allenatore']}</b>"
+            return "BOSS", KO, a["nome_allenatore"], dove
         if all_ == 0:
-            return "SELVATICO", WARN, f"<b>{sp}</b>{lv}"
+            return "SELVATICO", WARN, f"{sp}{lv}", dove
         if all_:
-            return "ALLENATORE", WARN, f"<b>{sp}</b>{lv}"
-        return "IN LOTTA", WARN, f"<b>{sp}</b>{lv}"
-    if x.get("zona_nome"):
-        return "IN GIRO", OK, x["zona_nome"]
-    return "IN GIOCO", OK, "schermata iniziale"
+            return "ALLENATORE", WARN, a.get("chi_allenatore") or f"{sp}{lv}", dove
+        return "IN LOTTA", WARN, f"{sp}{lv}", dove
+    pross = (x.get("prossimo") or {}).get("nome")
+    if luogo:
+        return "IN GIRO", OK, luogo, f"prossimo: {pross}" if pross else ""
+    return "IN GIOCO", OK, "schermata iniziale", ""
 
 
 class CartaGiocatore(QFrame):
@@ -163,10 +182,18 @@ class CartaGiocatore(QFrame):
         r1.addWidget(self.l_nome, 1)
         r1.addWidget(self.medaglie, 0, Qt.AlignVCenter)
         g.addLayout(r1, 0, 1)
+        r2 = QHBoxLayout()                                   # etichetta colorata + contro chi (con «…» se non ci sta)
+        r2.setSpacing(7)
         self.l_stato = etichetta("")
-        self.l_stato.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # un testo lungo non allarga la carta
         self.l_stato.setMinimumHeight(19)
-        g.addWidget(self.l_stato, 1, 1)
+        self.l_cosa = Elisa()
+        self.l_cosa.setMinimumHeight(19)
+        r2.addWidget(self.l_stato, 0)
+        r2.addWidget(self.l_cosa, 1)
+        g.addLayout(r2, 1, 1)
+        self.l_luogo = Elisa()                               # dov'è, su tutta la larghezza
+        self.l_luogo.setMinimumHeight(16)
+        g.addWidget(self.l_luogo, 2, 0, 1, 2)
         r3 = QHBoxLayout()
         r3.setSpacing(10)
         r3.setContentsMargins(0, 4, 0, 0)
@@ -176,7 +203,7 @@ class CartaGiocatore(QFrame):
         self.l_lv = etichetta("", "piccolo")
         r3.addWidget(self.ps, 1, Qt.AlignVCenter)
         r3.addWidget(self.l_lv, 0, Qt.AlignVCenter)
-        g.addLayout(r3, 2, 0, 1, 2)
+        g.addLayout(r3, 3, 0, 1, 2)
         g.setColumnStretch(1, 1)
 
     def imposta(self, g, x, squadra, io=False, colore=ACC):
@@ -185,8 +212,13 @@ class CartaGiocatore(QFrame):
         self.l_nome.setText(f"<b style='font-size:10.5pt;color:{TESTO if online else TENUE}'>{g}</b>")
         self.l_nome.setToolTip("sei tu" if io else "")
         self.medaglie.imposta(x.get("medaglie") or 0)
-        et, c, testo = stato_giocatore(x)
-        self.l_stato.setText(f"{pill(et, c)}&nbsp;&nbsp;{testo}")
+        et, c, cosa, sotto = stato_giocatore(x)
+        self.l_stato.setText(pill(et, c))
+        self.l_cosa.setText(cosa)
+        self.l_cosa.setStyleSheet(f"color:{'#ff8a96' if et == 'BOSS' else TESTO if online else TENUE};"
+                                  f" font-weight:{700 if et in ('BOSS', 'ALLENATORE', 'SELVATICO') else 400};")
+        self.l_luogo.setText(sotto)
+        self.l_luogo.setStyleSheet(f"color:{'#aeb2c4' if online else TENUE}; font-size:8.5pt;")
         in_lotta = bool((x.get("attivita") or {}).get("lotta") and x.get("online") and x.get("emulatore"))
         boss = in_lotta and et == "BOSS"
         if self.property("lotta") != (in_lotta and not boss) or self.property("boss") != boss:
@@ -208,7 +240,7 @@ class CartaGiocatore(QFrame):
                           f" <span style='color:#5b5f73'>·</span> cap <b style='color:{WARN}'>{cap}</b>")
         self.ps.setToolTip(f"PS della squadra: {ora}/{tot}" if tot else "nessun Pokémon in squadra")
         righe = [f"<b>{g}</b> · {x.get('medaglie') or 0} medaglie · level cap {cap} · {len(squadra)} in squadra",
-                 f"{et.capitalize()}: {testo}"]
+                 f"{et.capitalize()}: {cosa}" + (f" — {sotto}" if sotto else "")]
         a = x.get("attivita") or {}
         if in_lotta and a.get("ps_max"):
             righe[-1] += f" · PS del nemico {round(100 * (a.get('ps') or 0) / a['ps_max'])}%"
@@ -226,7 +258,7 @@ class BarraSuperiore(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("barra")
-        self.setFixedHeight(104)
+        self.setFixedHeight(122)
         h = QHBoxLayout(self)
         h.setContentsMargins(20, 9, 12, 9)
         h.setSpacing(10)
@@ -642,7 +674,7 @@ class Notifiche(QWidget):
         self.v.setContentsMargins(0, 0, 0, 0)
         self.v.setSpacing(8)
         self.v.addStretch()
-        self.setFixedWidth(340)
+        self.setFixedWidth(360)
         self.attive = []
 
     def mostra(self, testo, colore=None, secondi=6):
@@ -666,10 +698,56 @@ class Notifiche(QWidget):
         h.addWidget(barra)
         l = etichetta(testo, a_capo=True)
         h.addWidget(l, 1)
+        self._aggiungi(f, secondi)
+
+    def grande(self, titolo, testo="", colore=OK, simbolo="!", secondi=12):
+        """Notifica importante: più grande, colorata e più lunga; se l'app non è in primo piano
+        fa lampeggiare la sua icona nella barra delle applicazioni."""
+        from PySide6.QtWidgets import QApplication, QGraphicsDropShadowEffect
+        f = QFrame()
+        f.setObjectName("notificaGrande")
+        f.grande = True
+        def misto(a, b, t):                       # colore pieno (non trasparente: sotto c'è altro testo)
+            ca, cb = QColor(a), QColor(b)
+            return QColor(round(ca.red() * t + cb.red() * (1 - t)), round(ca.green() * t + cb.green() * (1 - t)),
+                          round(ca.blue() * t + cb.blue() * (1 - t))).name()
+        f.setStyleSheet(f"QFrame#notificaGrande {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {misto(colore, '#262a3c', 0.22)},"
+                        f" stop:0.6 #262a3c, stop:1 #222536); border: 1px solid {misto(colore, '#262a3c', 0.7)}; border-radius: 14px; }}")
+        e = QGraphicsDropShadowEffect(f)
+        e.setBlurRadius(34)
+        e.setOffset(0, 6)
+        c = QColor(colore)
+        c.setAlpha(150)
+        e.setColor(c)
+        f.setGraphicsEffect(e)
+        h = QHBoxLayout(f)
+        h.setContentsMargins(14, 14, 16, 14)
+        h.setSpacing(14)
+        tondo = QLabel(simbolo)
+        tondo.setFixedSize(38, 38)
+        tondo.setAlignment(Qt.AlignCenter)
+        tondo.setStyleSheet(f"background:{colore}; color:#14151d; border-radius:19px; font-weight:800;"
+                            f" font-size:{15 if len(simbolo) == 1 else 10}pt;")
+        h.addWidget(tondo, 0, Qt.AlignTop)
+        v = QVBoxLayout()
+        v.setSpacing(4)
+        t = etichetta(titolo, a_capo=True, stile=f"color:{colore}; font-size:12.5pt; font-weight:800; background:transparent;")
+        v.addWidget(t)
+        if testo:
+            v.addWidget(etichetta(testo, a_capo=True, stile="color:#e6e8f0; font-size:10pt; background:transparent;"))
+        h.addLayout(v, 1)
+        self._aggiungi(f, secondi)
+        finestra = self.window()
+        if finestra and not finestra.isActiveWindow():
+            QApplication.alert(finestra, 0)
+
+    def _aggiungi(self, f, secondi):
+        from PySide6.QtCore import QTimer
         self.v.addWidget(f)
         self.attive.append(f)
-        while len(self.attive) > 3:
-            vecchia = self.attive.pop(0)
+        while len(self.attive) > 3:                    # tolgo prima le notifiche normali, poi le importanti
+            vecchia = next((x for x in self.attive if not getattr(x, "grande", False)), self.attive[0])
+            self.attive.remove(vecchia)
             vecchia.hide()
             self.v.removeWidget(vecchia)
             vecchia.deleteLater()
@@ -684,7 +762,7 @@ class Notifiche(QWidget):
                 self.v.removeWidget(f)
                 f.deleteLater()
             QTimer.singleShot(50, self.riposiziona)
-        QTimer.singleShot(secondi * 1000, togli)
+        QTimer.singleShot(int(secondi * 1000), togli)
 
     def riposiziona(self):
         p = self.parentWidget()

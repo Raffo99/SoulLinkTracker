@@ -233,11 +233,22 @@ class Finestra(QMainWindow):
         self.b_nuova = QPushButton("Nuova run")
         self.b_nuova.setObjectName("primario")
         self.b_riavvia = QPushButton("Riavvia gioco")
-        self.b_partenza = QPushButton("Salvataggio di partenza")
+        self.b_partenza = QPushButton("Partenza")
+        self.b_partenza.setToolTip("Salvataggio di partenza: da dove riparte ogni nuova run")
         self.b_regole = QPushButton("Regole")
         self.b_altro = QPushButton("Altro")
         self.b_imp = QPushButton("Impostazioni")
-        for b in (self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_altro, self.b_imp):
+        self.b_vel = QPushButton("")
+        self.b_vel.setToolTip("Velocità del gioco (al posto delle scorciatoie di BizHawk). Tab tenuto premuto resta l'avanti veloce.")
+        m_vel = QMenu(self)
+        for perc, t in ((100, "×1 normale"), (200, "×2"), (300, "×3"), (400, "×4"), (800, "×8"), (6400, "Più veloce possibile")):
+            a = m_vel.addAction(t)
+            a.setCheckable(True)
+            a.setData(perc)
+            a.triggered.connect(lambda _=False, perc=perc: self._imposta_velocita(perc))
+        self.m_vel = m_vel
+        self.b_vel.setMenu(m_vel)
+        for b in (self.b_vel, self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_altro, self.b_imp):
             hb.addWidget(b)
         v.addWidget(basso)
 
@@ -296,7 +307,7 @@ class Finestra(QMainWindow):
         self.sincro.connessione.connect(self._connessione)
         if self.sincro.online:                  # collegato prima che il segnale fosse agganciato
             self._connessione(True, "")
-        self.sincro.messaggio.connect(lambda t: (self._log(t, ORO), self.notifiche.mostra(t)))
+        self.sincro.messaggio.connect(self._messaggio)
         self.sincro.run_cambiata.connect(self._run_cambiata)
         self.sincro.ignorato.connect(lambda t: self._log("Dati non registrati: " + t, WARN))
         self.sprite.aggiornato.connect(self._sprite_pronti)
@@ -308,6 +319,7 @@ class Finestra(QMainWindow):
         self._risposte.connect(self._gestisci_risposte)
         self._in_gui.connect(lambda f: f())
         self._dettagli.connect(self._mostra_lotta)
+        self._aggiorna_vel()
         self._aggiornamento.connect(self._esito_aggiornamento)
         self._riavvia_con = None
         aggiorna.pulisci()
@@ -318,6 +330,11 @@ class Finestra(QMainWindow):
         self._squadra_gioco = []
         self._box_gioco = None
         self._det_lotta = None
+        self._impara_rom = None
+        self._incontri_rom = None         # dove si incontrano selvatici, letto dalla ROM
+        self._ultimo_luogo = None
+        self._luoghi_avvisati = set()
+        self._lotte_avvisate = set()
         self._controllo_visto = None
         MiniPokemon.apri = self._apri_pokemon
         self.p_percorsi.apri_pokemon = self._apri_pokemon
@@ -550,6 +567,8 @@ class Finestra(QMainWindow):
                 self._avvisi_lua.clear()
             righe += self._comandi_lua
             self._comandi_lua.clear()
+        self._misura_velocita(dati)
+        righe.append(f"VELOCITA {int(self.cfg.get('velocita', 100) or 100)}")
         blocca = self.cfg.get("blocca_input", True) is not False and not self._in_primo_piano
         righe.append(f"FOCUS {0 if blocca else 1}")
         if not solo_comandi:
@@ -559,6 +578,38 @@ class Finestra(QMainWindow):
             righe.append("MODO allenatori" if reg.get("solo_allenatori") else "MODO normale")
             righe.append(f"CONDIVIDI {1 if reg.get('condividi_esp') else 0}")
         return "\n".join(righe) + "\n"
+
+    def _imposta_velocita(self, v):
+        self.cfg["velocita"] = v
+        self.cfg.salva()
+        self._aggiorna_vel()
+
+    def _aggiorna_vel(self, reale=None):
+        v = int(self.cfg.get("velocita", 100) or 100)
+        nome = "max" if v >= 6400 else f"×{v // 100}"
+        testo = f"Velocità {nome}"
+        if reale is not None and self.emu.in_esecuzione:
+            testo += f" ({reale:.1f})".replace(".", ",")
+            self.b_vel.setToolTip(f"Velocità scelta: {nome}. Velocità vera del gioco adesso: ×{reale:.1f}".replace(".", ",")
+                                  + ". Se resta più bassa di quella scelta, il PC non ce la fa ad andare più veloce. "
+                                  "Tab tenuto premuto resta l'avanti veloce di BizHawk.")
+        self.b_vel.setText(testo)
+        for a in self.m_vel.actions():
+            a.setChecked(a.data() == v)
+
+    def _misura_velocita(self, dati):
+        """Velocità vera del gioco (fotogrammi al secondo / 60), dai contatti dello script: dice se il PC ce la fa."""
+        fc = dati.get("fc")
+        if fc is None:
+            return
+        ora = time.time()
+        prima = getattr(self, "_vel_campione", None)
+        if prima and ora - prima[1] >= 2 and fc > prima[0]:
+            reale = (fc - prima[0]) / (ora - prima[1]) / 60
+            self._vel_campione = (fc, ora)
+            self._in_gui.emit(lambda r=reale: self._aggiorna_vel(r))
+        elif not prima or fc < prima[0] or ora - prima[1] > 10:
+            self._vel_campione = (fc, ora)
 
     def _controlla_focus(self):
         """L'app (con BizHawk dentro) è la finestra in primo piano? Se no, i tasti non devono arrivare al gioco."""
@@ -585,7 +636,125 @@ class Finestra(QMainWindow):
         self.c_luogo.setVisible(not in_lotta)
         self.c_lotta.setVisible(in_lotta)
         if in_lotta:
+            self._carica_impara()
             self.c_lotta.aggiorna(det, self._squadra_gioco)
+            self._avvisa_lotta_importante(det)
+
+    def _avvisa_lotta_importante(self, det):
+        """Notifica grande all'inizio della lotta contro un capopalestra, il rivale, il Team Plasma, la Lega."""
+        o = L.OBIETTIVO_DA_ID.get(det.get("allenatore") or -1)
+        st = self._ultimo_stato
+        if not o or not st:
+            return
+        chiave = (st.get("run"), st.get("edizione"), o["id"])
+        if chiave in self._lotte_avvisate:
+            return
+        self._lotte_avvisate.add(chiave)
+        io = self.cfg["giocatore"]
+        n = len(det.get("nemici") or [])
+        testo = [f"Ha {n} Pokémon." if n else "", "È uno degli obiettivi importanti della run: occhio alle mosse!"]
+        cap = (st["giocatori"].get(io) or {}).get("cap")
+        if st["regole"].get("level_cap", True) and isinstance(cap, int):
+            sopra = [p for p in self._squadra_gioco if not p.get("uovo") and (p.get("livello") or 0) > cap]
+            if sopra:
+                nomi = ", ".join(f"{p.get('soprannome') or L.info(p['specie'])['nome']} (Lv.{p.get('livello')})" for p in sopra[:3])
+                testo.append(f"<b style='color:{WARN}'>Sopra il level cap {cap}:</b> {nomi}")
+            else:
+                testo.append(f"<span style='color:{TENUE}'>Level cap: {cap}</span>")
+        self.notifiche.grande(f"Lotta contro {o['nome']}", "<br>".join(t for t in testo if t), KO, "VS", 10)
+
+    def _carica_impara(self):
+        """Legge dalla ROM randomizzata le mosse che ogni Pokémon impara salendo di livello (una volta per ROM)."""
+        rom = self.emu.rom
+        if not rom or rom == self._impara_rom:
+            return
+        self._impara_rom = rom
+        self._incontri_rom = None
+
+        def lavoro():
+            from . import rom as R
+            try:
+                dati = R.mosse_per_livello(rom)
+            except Exception as e:
+                dati = {}
+                self._avviso.emit(f"Non riesco a leggere le mosse dalla ROM ({e})", WARN)
+            try:
+                inc = R.incontri(rom)
+            except Exception as e:
+                inc = False                      # non leggibile: si avvisa in tutti i luoghi con un nome
+                self._avviso.emit(f"Non riesco a leggere dalla ROM dove sono i selvatici ({e})", WARN)
+            try:
+                nomi = R.nomi(rom)
+            except Exception as e:
+                nomi = {}
+                self._avviso.emit(f"Non riesco a leggere dalla ROM i nomi di luoghi e allenatori ({e})", WARN)
+
+            def fatto():
+                if rom == self.emu.rom:
+                    L.imposta_dati_rom((inc or {}).get("zona_luogo"), nomi.get("luoghi"), nomi.get("allenatori"))
+                    self.c_lotta.imposta_impara(dati)
+                    self._incontri_rom = inc
+                    if self._ultimo_stato:
+                        self._controlla_luogo(self._ultimo_stato, self.cfg["giocatore"])
+            self._in_gui.emit(fatto)
+        threading.Thread(target=lavoro, daemon=True).start()
+
+    def _messaggio(self, t):
+        """Messaggi della partita: quelli sugli obiettivi importanti diventano notifiche grandi."""
+        import re
+        self._log(t, ORO)
+        io = self.cfg["giocatore"]
+        m = re.match(r"^(.+) ha battuto (.+)!$", t)
+        nomi_obiettivi = {o["nome"] for o in L.OBIETTIVI}
+        if m and m.group(2) in nomi_obiettivi:
+            chi, contro = m.group(1), m.group(2)
+            if chi == io:
+                self.notifiche.grande(f"Hai battuto {contro}!", "Obiettivo importante completato. Bel colpo!", ORO, "★", 12)
+            else:
+                self.notifiche.grande(f"{chi} ha battuto {contro}!", f"Obiettivo importante completato da {chi}.", "#b9a8ff", "★", 9)
+        elif t.startswith("RUN VINTA") or t.startswith("Superquattro battuti") or t.startswith("Hai battuto la Campionessa"):
+            self.notifiche.grande(t.split("!")[0] + "!", t.split("!", 1)[1].strip(), ORO, "★", 14)
+        else:
+            self.notifiche.mostra(t)
+
+    def _controlla_luogo(self, st, io):
+        """Notifica grande quando entri in un luogo dove il tuo primo incontro è ancora da fare."""
+        x = st["giocatori"].get(io) or {}
+        luogo = x.get("luogo_attuale")
+        if luogo is None or luogo == self._ultimo_luogo or st["stato"] != "in_corso" or not self._gioco_attivo:
+            return
+        if self._incontri_rom is None:
+            self._carica_impara()
+            return                                   # la ROM si sta ancora leggendo: riprovo al prossimo aggiornamento
+        self._ultimo_luogo = luogo
+        chiave = (st["run"], st.get("edizione"), luogo)
+        if chiave in self._luoghi_avvisati:
+            return
+        riga = next((r for r in st["percorsi"] if r["luogo"] == luogo), None)
+        mio = ((riga or {}).get("giocatori") or {}).get(io) or {}
+        if mio.get("cattura") or mio.get("incontro"):
+            return                                   # qui hai già fatto il tuo incontro
+        tipo = None
+        if self._incontri_rom:
+            if str(luogo).isdigit():
+                tipo = self._incontri_rom["luoghi"].get(int(luogo))
+            elif x.get("zona") is not None:
+                tipo = self._incontri_rom["zone"].get(int(x["zona"]))
+            if not tipo:
+                return                               # qui non ci sono selvatici
+        elif not str(luogo).isdigit():
+            return
+        self._luoghi_avvisati.add(chiave)
+        nome_l = x.get("zona_nome") or L.nome_luogo(luogo)
+        falliti = [g for g, y in ((riga or {}).get("giocatori") or {}).items()
+                   if g != io and y.get("incontro") and y["incontro"]["esito"] == "fallito"]
+        nota = f"<br><span style='color:{WARN}'>{falliti[0]} ha fallito qui: la tua cattura andrà nel box.</span>" if falliti else ""
+        if tipo == "acqua":
+            self.notifiche.mostra(f"{nome_l}: incontro ancora libero, ma qui i selvatici sono solo in acqua (Surf o pesca).",
+                                  "#6cb8ff", 8)
+            return
+        self.notifiche.grande(f"Cattura da fare: {nome_l}",
+                              "Il primo Pokémon selvatico che incontri qui è quello che conta." + nota, OK, "!", 12)
 
     def _script_collegato(self, ok):
         if not ok:
@@ -596,6 +765,7 @@ class Finestra(QMainWindow):
         if ok:
             self._log("Lo script di BizHawk è collegato all'app", OK)
             self._ultimo_backup = time.time()
+            self._carica_impara()
             QTimer.singleShot(1500, self._proponi_ripresa)
             QTimer.singleShot(12000, self._controllo_automatico)
 
@@ -614,6 +784,7 @@ class Finestra(QMainWindow):
         self.barra.tic()
         self.c_obiettivo.aggiorna(st, io)
         self.c_luogo.aggiorna(st, io)
+        self._controlla_luogo(st, io)
         if st["avvisi"]:
             righe = [f"⚠&nbsp;&nbsp;{html.escape(a)}" for a in st["avvisi"][:3]]
             if len(st["avvisi"]) > 3:

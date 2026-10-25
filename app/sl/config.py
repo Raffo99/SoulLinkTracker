@@ -44,6 +44,7 @@ PREDEFINITA = {
     "blocca_input": True,            # i tasti non arrivano al gioco quando usi un'altra finestra
     "aggiorna_auto": True,           # all'avvio controlla se su GitHub c'è una versione nuova
     "salta_versione": "",
+    "velocita": 100,                 # velocita' del gioco in percentuale
 }
 
 

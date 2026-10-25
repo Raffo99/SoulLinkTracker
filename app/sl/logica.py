@@ -12,21 +12,38 @@ _base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 _DATI = json.loads((_base / "risorse" / "dati.json").read_text("utf-8"))
 POKEDEX, LUOGHI, ZONE, ZONE_NOMI_EN = _DATI["pokedex"], _DATI["luoghi"], _DATI["zone"], _DATI["zone_nomi_en"]
 
+NOMI_ALLENATORI = {}      # id -> "Classe Nome", letti dalla ROM
+
+
+def imposta_dati_rom(zona_luogo=None, nomi_luoghi=None, allenatori=None):
+    """Usa i dati letti dalla ROM: a quale luogo appartiene ogni zona, i nomi dei luoghi e degli allenatori.
+    La ROM è la fonte esatta; i dati inclusi nell'app restano per quello che la ROM non dice."""
+    for i, n in enumerate(nomi_luoghi or []):
+        if n and not LUOGHI.get(str(i)):
+            LUOGHI[str(i)] = n
+    for z, l in (zona_luogo or {}).items():
+        if l and (LUOGHI.get(str(l)) or (nomi_luoghi and l < len(nomi_luoghi) and nomi_luoghi[l])):
+            ZONE[str(z)] = l
+    if allenatori:
+        NOMI_ALLENATORI.clear()
+        NOMI_ALLENATORI.update(allenatori)
+
+
 MAX_GIOCATORI = 4
 TEMPO_PAUSA = 90          # secondi senza battiti oltre i quali il tempo della run si ferma
 LEVEL_CAP = [13, 18, 24, 30, 33, 39, 48, 51, 58, 59]
-NOMI_CAP = ["Cheren", "Rosy", "Artemisio", "Camelia", "Rafan", "Anisia", "Aristide", "Ciprian", "Superquattro", "Iris"]
+NOMI_CAP = ["Komor", "Velia", "Artemisio", "Camelia", "Rafan", "Anemone", "Aristide", "Ciprian", "Superquattro", "Iris"]
 
 # obiettivi principali: ID allenatore (Nero 2 / Bianco 2, dal NDS Ironmon Tracker); "asso" = livello del Pokemon più forte
 OBIETTIVI = [
     {"id": "rivale1", "nome": "Rivale (prima lotta)", "tipo": "rivale", "ids": [161, 162, 163]},
-    {"id": "cheren", "nome": "Cheren", "tipo": "palestra", "medaglia": 1, "ids": [156]},
+    {"id": "cheren", "nome": "Komor", "tipo": "palestra", "medaglia": 1, "ids": [156]},
     {"id": "rivale2", "nome": "Rivale (Fattoria di Venturia)", "tipo": "rivale", "ids": [166, 167, 168]},
-    {"id": "rosy", "nome": "Rosy", "tipo": "palestra", "medaglia": 2, "ids": [157]},
+    {"id": "rosy", "nome": "Velia", "tipo": "palestra", "medaglia": 2, "ids": [157]},
     {"id": "artemisio", "nome": "Artemisio", "tipo": "palestra", "medaglia": 3, "ids": [154]},
     {"id": "camelia", "nome": "Camelia", "tipo": "palestra", "medaglia": 4, "ids": [153]},
     {"id": "rafan", "nome": "Rafan", "tipo": "palestra", "medaglia": 5, "ids": [158]},
-    {"id": "anisia", "nome": "Anisia", "tipo": "palestra", "medaglia": 6, "ids": [155]},
+    {"id": "anisia", "nome": "Anemone", "tipo": "palestra", "medaglia": 6, "ids": [155]},
     {"id": "rivale3", "nome": "Rivale (Fregata Plasma)", "tipo": "rivale", "ids": [368, 369, 370]},
     {"id": "aristide", "nome": "Aristide", "tipo": "palestra", "medaglia": 7, "ids": [159]},
     {"id": "acromio", "nome": "Acromio", "tipo": "plasma", "ids": [344]},
@@ -34,7 +51,7 @@ OBIETTIVI = [
     {"id": "rivale4", "nome": "Rivale (Spiraria)", "tipo": "rivale", "ids": [378, 379, 380]},
     {"id": "ciprian", "nome": "Ciprian", "tipo": "palestra", "medaglia": 8, "ids": [160]},
     {"id": "rivale5", "nome": "Rivale (Via Vittoria)", "tipo": "rivale", "ids": [684, 685, 686]},
-    {"id": "antea", "nome": "Antea", "tipo": "lega", "ids": [38]},
+    {"id": "antea", "nome": "Antemia", "tipo": "lega", "ids": [38]},
     {"id": "marzio", "nome": "Marzio", "tipo": "lega", "ids": [39]},
     {"id": "mirton", "nome": "Mirton", "tipo": "lega", "ids": [40]},
     {"id": "catlina", "nome": "Catlina", "tipo": "lega", "ids": [41]},
