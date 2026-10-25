@@ -87,6 +87,18 @@ def testo_molt(m):
     return "×1", TENUE, "normale"
 
 
+def scrivi_molt(x) -> str:
+    """×3, ×1,5, ×0,75… (virgola italiana, senza zeri inutili)."""
+    if x == int(x):
+        return f"×{int(x)}"
+    return "×" + f"{x:.3f}".rstrip("0").rstrip(".").replace(".", ",")
+
+
+def totale(e, stab) -> float:
+    """Moltiplicatore complessivo: efficacia del tipo × 1,5 se la mossa è dello stesso tipo del Pokémon."""
+    return e * (1.5 if stab else 1.0)
+
+
 def migliore(mosse, tipi_attaccante, tipi_difesa):
     """(moltiplicatore, mossa) della mossa d'attacco migliore (efficacia × STAB × potenza)."""
     best = None
@@ -98,7 +110,7 @@ def migliore(mosse, tipi_attaccante, tipi_difesa):
         stab = 1.5 if mo["tipo"] in (tipi_attaccante or []) else 1.0
         punteggio = e * stab * mo["potenza"]
         if not best or punteggio > best[2]:
-            best = (e, mo, punteggio)
+            best = (e, mo, punteggio, totale(e, stab > 1))
     return best
 
 
@@ -144,6 +156,7 @@ class CartaLotta(QFrame):
         self.sprite = sprite
         self.det, self.squadra = None, []
         self.sel_mio, self.sel_nemico = None, None
+        self._idx_nem, self._ko_da = None, None
         self.v = QVBoxLayout(self)
         self.v.setContentsMargins(18, 14, 18, 14)
         self.v.setSpacing(8)
@@ -153,6 +166,8 @@ class CartaLotta(QFrame):
             it = self.v.takeAt(0)
             w = it.widget()
             if w:
+                w.hide()
+                w.setParent(None)
                 w.deleteLater()
             elif it.layout():
                 _svuota(it.layout())
@@ -163,6 +178,7 @@ class CartaLotta(QFrame):
         self.squadra = [p for p in (squadra or []) if not p.get("uovo")]
         if cambio_lotta:
             self.sel_mio = self.sel_nemico = None
+            self._idx_nem, self._ko_da = None, None
         self._disegna()
 
     # ---------- scelte predefinite: il primo Pokémon vivo, l'avversario in campo ----------
@@ -175,120 +191,81 @@ class CartaLotta(QFrame):
         return vivi[0] if vivi else None
 
     def _nemico(self):
+        """L'avversario in campo. Quando va KO si continua a mostrarlo per qualche secondo: il successivo
+        compare solo dopo, quando l'allenatore lo manda in campo (così il tracker non anticipa niente)."""
+        import time
+        from PySide6.QtCore import QTimer
         nemici = (self.det or {}).get("nemici") or []
-        if self.sel_nemico is not None and self.sel_nemico < len(nemici):
-            return self.sel_nemico, nemici[self.sel_nemico]
-        for i, n in enumerate(nemici):
-            if (n.get("ps") or 0) > 0:
-                return i, n
-        return (0, nemici[0]) if nemici else (None, None)
+        if not nemici:
+            return None, None
+        i = self._idx_nem if self._idx_nem is not None and self._idx_nem < len(nemici) else 0
+        if (nemici[i].get("ps") or 0) == 0:
+            if self._ko_da is None:
+                self._ko_da = time.time()
+                QTimer.singleShot(4200, self._disegna)
+            elif time.time() - self._ko_da >= 4:
+                dopo = next((k for k in range(i + 1, len(nemici)) if (nemici[k].get("ps") or 0) > 0), None)
+                if dopo is not None:
+                    i, self._ko_da = dopo, None
+        else:
+            self._ko_da = None
+        self._idx_nem = i
+        return i, nemici[i]
 
     def _disegna(self):
         self._pulisci()
         det = self.det or {}
         nemici = det.get("nemici") or []
         o = L.OBIETTIVO_DA_ID.get(det.get("allenatore") or -1)
+        _, nem = self._nemico()
+        mio = self._mio()
+
+        # --- titolo: contro chi (solo quello che si vede anche nel gioco)
+        testa = QHBoxLayout()
         if det.get("allenatore"):
             titolo = f"LOTTA CONTRO {o['nome'].upper()}" if o else "LOTTA CONTRO UN ALLENATORE"
         else:
-            titolo = "LOTTA CON UN POKÉMON SELVATICO"
+            titolo = "LOTTA CON UN SELVATICO"
         t = QLabel(titolo)
         t.setObjectName("sezione")
         t.setStyleSheet(f"color:{KO if o else WARN};")
-        self.v.addWidget(t)
-        if not nemici:
-            self.v.addWidget(QLabel("<span style='color:%s'>Leggo l'avversario…</span>" % TENUE))
+        testa.addWidget(t)
+        if det.get("allenatore") and nemici:
+            # dell'allenatore si sa solo quanti Pokémon ha (come le Poké Ball del gioco), non quali
+            palle = QHBoxLayout()
+            palle.setSpacing(3)
+            for n in nemici:
+                pb = QLabel()
+                pb.setFixedSize(11, 11)
+                if (n.get("ps") or 0) > 0:
+                    pb.setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #ff5c6c, stop:0.46 #ff5c6c,"
+                                     " stop:0.47 #1b1d29, stop:0.56 #1b1d29, stop:0.57 #eceef4, stop:1 #eceef4); border-radius: 5px;")
+                else:
+                    pb.setStyleSheet("background: #3a3e52; border-radius: 5px;")
+                palle.addWidget(pb)
+            box = QWidget()
+            box.setLayout(palle)
+            box.setToolTip(f"L'allenatore ha {len(nemici)} Pokémon")
+            palle.setContentsMargins(8, 0, 0, 0)
+            testa.addWidget(box)
+        testa.addStretch()
+        if nem:
+            testa.addWidget(QLabel(f"<span style='color:{TENUE}'>contro</span> <b>{L.info(nem['specie'])['nome']}</b> "
+                                   f"<span style='color:{TENUE}'>Lv.{nem['livello']}</span>"))
+        self.v.addLayout(testa)
+        if not nem:
+            self.v.addWidget(QLabel(f"<span style='color:{TENUE}'>Leggo l'avversario…</span>"))
             self.v.addStretch()
             return
-        i_nem, nem = self._nemico()
-        mio = self._mio()
         tipi_nem = tipi_di(nem["specie"])
-        tipi_mio = tipi_di(mio["specie"]) if mio else []
 
-        # --- avversario
-        r = QHBoxLayout()
-        r.setSpacing(12)
-        img = QLabel()
-        img.setFixedSize(56, 56)
-        pm = self.sprite.pixmap(nem["specie"], 56)
-        if pm:
-            img.setPixmap(pm)
-        img.setStyleSheet(f"background: {alfa(COLORI_TIPI.get((tipi_nem or ['?'])[0], '#888888'), 0.18)}; border-radius: 28px;")
-        r.addWidget(img)
-        col = QVBoxLayout()
-        col.setSpacing(3)
-        nome = L.info(nem["specie"])["nome"]
-        st, cst = stato_alterato(nem.get("stato_alt"))
-        st_html = f"&nbsp;<span style='color:{cst};font-weight:700;font-size:8pt'>{st}</span>" if st else ""
-        col.addWidget(QLabel(f"<b style='font-size:11.5pt'>{nome}</b> <span style='color:{TENUE}'>Lv.{nem['livello']}</span>{st_html}"
-                             f"&nbsp;&nbsp;{' '.join(pillola_tipo(x) for x in tipi_nem)}"))
-        ps = QProgressBar()
-        ps.setTextVisible(False)
-        ps.setRange(0, max(1, nem.get("ps_max") or 1))
-        ps.setValue(nem.get("ps") or 0)
-        perc = (nem.get("ps") or 0) / max(1, nem.get("ps_max") or 1)
-        cps = OK if perc > 0.5 else WARN if perc > 0.2 else KO
-        ps.setStyleSheet(f"QProgressBar::chunk{{background:{cps};}}")
-        col.addWidget(ps)
-        info = []
-        if mio and mio.get("stat") and nem.get("stat"):
-            vm, vn = mio["stat"][2], nem["stat"][2]
-            if vm > vn:
-                info.append(f"<span style='color:{OK}'>{mio.get('soprannome') or L.info(mio['specie'])['nome']} è più veloce</span>")
-            elif vm < vn:
-                info.append(f"<span style='color:{WARN}'>{nome} è più veloce</span>")
-            else:
-                info.append(f"<span style='color:{TENUE}'>stessa velocità</span>")
-        info.append(f"<span style='color:{TENUE}'>PS {nem.get('ps')}/{nem.get('ps_max')}</span>")
-        col.addWidget(QLabel("&nbsp;·&nbsp;".join(info)))
-        r.addLayout(col, 1)
-        self.v.addLayout(r)
-
-        if len(nemici) > 1:
-            riga = QHBoxLayout()
-            riga.setSpacing(4)
-            for i, n in enumerate(nemici):
-                b = Scelta(self.sprite, n["specie"], f"Lv.{n['livello']}")
-                b.setChecked(i == i_nem)
-                if (n.get("ps") or 0) == 0:
-                    b.setEnabled(False)
-                b.setToolTip(L.info(n["specie"])["nome"])
-                b.clicked.connect(lambda _=False, i=i: self._scegli_nemico(i))
-                riga.addWidget(b)
-            riga.addStretch()
-            self.v.addLayout(riga)
-
-        # --- mosse dell'avversario contro il tuo Pokémon
-        if mio:
-            pericoli = []
-            for k, mid in enumerate(nem.get("mosse") or []):
-                mo = mossa(mid) if mid else None
-                if not mo:
-                    continue
-                if mo["classe"] == 0:
-                    pericoli.append(f"<span style='color:{TENUE}'>{mo['nome']}</span>")
-                    continue
-                e = efficacia(mo["tipo"], tipi_mio)
-                tx, c, _ = testo_molt(e)
-                stab = "★" if mo["tipo"] in tipi_nem else ""
-                pericoli.append(f"<span style='color:{COLORI_TIPI.get(mo['tipo'], '#888')}'>{mo['nome']}</span>"
-                                f"<b style='color:{c}'>&nbsp;{tx}</b><span style='color:{ORO}'>{stab}</span>")
-            if pericoli:
-                l = QLabel(f"<span style='color:{TENUE}'>Sue mosse:</span>&nbsp; " + "&nbsp;&nbsp;·&nbsp;&nbsp;".join(pericoli))
-                l.setWordWrap(True)
-                self.v.addWidget(l)
-
-        linea = QFrame()
-        linea.setFixedHeight(1)
-        linea.setStyleSheet("background: rgba(255,255,255,0.07);")
-        self.v.addWidget(linea)
-
-        # --- i tuoi Pokémon (scegli chi analizzare) con la mossa migliore
+        # --- la tua squadra: scegli chi è in campo (ognuno con il miglior moltiplicatore)
         riga = QHBoxLayout()
         riga.setSpacing(4)
         for p in self.squadra:
             best = migliore(p.get("mosse"), tipi_di(p["specie"]), tipi_nem)
-            tx, c, _ = testo_molt(best[0]) if best else ("", TENUE, "")
+            _, c, _ = testo_molt(best[0]) if best else ("", TENUE, "")
+            tx = scrivi_molt(best[3]) if best else ""
             b = Scelta(self.sprite, p["specie"], f"Lv.{p.get('livello')}", c, tx)
             b.setChecked(mio is not None and p.get("pid") == mio.get("pid"))
             if (p.get("ps") or 0) == 0:
@@ -299,43 +276,63 @@ class CartaLotta(QFrame):
             riga.addWidget(b)
         riga.addStretch()
         self.v.addLayout(riga)
-
         if not mio:
             self.v.addStretch()
             return
-        # --- le mosse del tuo Pokémon
+        tipi_mio = tipi_di(mio["specie"])
+
+        # --- il tuo Pokémon: nome, tipi, PS, stato, abilità
+        nome_mio = mio.get("soprannome") or L.info(mio["specie"])["nome"]
+        st, cst = stato_alterato(mio.get("stato_alt"))
+        righe = [f"<b style='font-size:11pt'>{nome_mio}</b> <span style='color:{TENUE}'>Lv.{mio.get('livello')}</span>"
+                 f"&nbsp; {' '.join(pillola_tipo(x) for x in tipi_mio)}"
+                 f"&nbsp; <span style='color:{TENUE}'>PS {mio.get('ps')}/{mio.get('ps_max')}</span>"
+                 + (f"&nbsp; <b style='color:{cst};font-size:8pt'>{st}</b>" if st else "")]
+        ab = (L._DATI.get("abilita") or {}).get(str(mio.get("abilita") or 0))
+        if ab:
+            righe.append(f"<span style='color:{TENUE}'>Abilità:</span> <b>{ab[0]}</b>"
+                         + (f" <span style='color:{TENUE}'>— {ab[1]}</span>" if ab[1] else ""))
+        info = QLabel("<br>".join(righe))
+        info.setWordWrap(True)
+        self.v.addWidget(info)
+
+        # --- le sue mosse: nome verde se superefficace, stella dorata se STAB, moltiplicatore e PP vicini
         g = QGridLayout()
-        g.setHorizontalSpacing(12)
-        g.setVerticalSpacing(5)
+        g.setHorizontalSpacing(14)
+        g.setVerticalSpacing(4)
+        g.setContentsMargins(0, 4, 0, 0)
         for k, mid in enumerate(mio.get("mosse") or []):
             mo = mossa(mid) if mid else None
             if not mo:
                 continue
-            c_tipo = COLORI_TIPI.get(mo["tipo"], "#888888")
-            n = QLabel(f"<b>{mo['nome']}</b>")
-            tipo = QLabel(pillola_tipo(mo["tipo"]))
-            classe = ["stato", "fisica", "speciale"][mo["classe"]]
-            pot = QLabel(f"<span style='color:{TENUE}'>{classe}</span>"
-                         + (f" <b>{mo['potenza']}</b>" if mo["potenza"] else ""))
+            stab = mo["tipo"] in tipi_mio and mo["classe"] != 0
             if mo["classe"] == 0:
-                eff = QLabel(f"<span style='color:{TENUE}'>—</span>")
+                colore_nome, tx, c, desc = TESTO, "—", TENUE, "mossa di stato"
             else:
                 e = efficacia(mo["tipo"], tipi_nem)
-                tx, c, desc = testo_molt(e)
-                stab = mo["tipo"] in tipi_mio
-                eff = QLabel(f"<b style='color:{c}'>{tx}</b>"
-                             + (f"&nbsp;<span style='background:{alfa(ORO, 0.2)};color:{ORO};font-size:7.5pt;font-weight:700'>&nbsp;STAB&nbsp;</span>" if stab else ""))
-                eff.setToolTip(desc + (" · stesso tipo del Pokémon: ×1,5" if stab else ""))
+                _, c, desc = testo_molt(e)
+                tx = scrivi_molt(totale(e, stab))
+                if stab and e > 0:
+                    desc = f"{desc} {scrivi_molt(e)} · stesso tipo del Pokémon (STAB) ×1,5 = {tx}"
+                colore_nome = OK if e >= 2 else KO if 0 < e < 1 else SPENTO if e == 0 else TESTO
+            stella = f"&nbsp;<span style='color:{ORO}'>★</span>" if stab else ""
+            n = QLabel(f"<b style='color:{colore_nome}'>{mo['nome']}</b>{stella}")
+            n.setToolTip(desc)
+            tipo = QLabel(pillola_tipo(mo["tipo"]))
+            classe = ["stato", "fisica", "speciale"][mo["classe"]]
+            pot = QLabel(f"<span style='color:{TENUE}'>{classe}</span>" + (f" <b>{mo['potenza']}</b>" if mo["potenza"] else ""))
+            molt = QLabel(f"<b style='color:{c}'>{tx}</b>")
+            molt.setToolTip(desc)
             pp_max = mo["pp"] * (5 + ((mio.get("pp_su") or [0, 0, 0, 0])[k] or 0)) // 5 if mo["pp"] else 0
             pp_ora = (mio.get("pp") or [0, 0, 0, 0])[k]
             cpp = KO if pp_ora == 0 else WARN if pp_max and pp_ora <= pp_max // 4 else TENUE
             pp = QLabel(f"<span style='color:{cpp}'>PP {pp_ora}/{pp_max}</span>")
-            for c_, w in enumerate((n, tipo, pot, eff, pp)):
+            for c_, w in enumerate((n, tipo, pot, molt, pp)):
                 g.addWidget(w, k, c_)
-        g.setColumnStretch(0, 1)
+        g.setColumnStretch(5, 1)                 # tutto vicino a sinistra
         self.v.addLayout(g)
-        nota = QLabel(f"<span style='color:{SPENTO};font-size:8pt'>I PS e i PP dei tuoi Pokémon sono quelli di inizio lotta. "
-                      "Clicca un Pokémon per vedere le sue mosse.</span>")
+        nota = QLabel(f"<span style='color:{SPENTO};font-size:8pt'>Clicca il Pokémon che hai in campo. "
+                      "PS e PP sono quelli di inizio lotta.</span>")
         nota.setWordWrap(True)
         self.v.addWidget(nota)
         self.v.addStretch()
@@ -353,6 +350,8 @@ def _svuota(layout):
     while layout.count():
         it = layout.takeAt(0)
         if it.widget():
+            it.widget().hide()
+            it.widget().setParent(None)
             it.widget().deleteLater()
         elif it.layout():
             _svuota(it.layout())

@@ -128,6 +128,7 @@ local function leggi_pkm(addr, con_lotta)
     pk.pp_su = { su1 & 0xFF, su1 >> 8, su2 & 0xFF, su2 >> 8 }
     pk.stat = { bat[0x92], bat[0x94], bat[0x96], bat[0x98], bat[0x9A] }    -- att, dif, vel, att.sp, dif.sp
     pk.stato_alt = bat[0x88] & 0xFF
+    pk.abilita = b("A", 0x0C) >> 8
   end
   return pk
 end
@@ -153,22 +154,29 @@ local function cerca_sito_esp()
   for _, a in ipairs({ esp_sito or 0, 0x1BD738, 0x1BD0F8, 0x1BD6F8 }) do
     if sito_valido(a) then return a end
   end
-  for a = 0x180000, 0x240000, 4 do
+  -- prima vicino agli indirizzi noti (veloce), poi in tutta la zona solo se serve davvero a una regola attiva
+  for a = 0x1B4000, 0x1C8000, 4 do
     if r32(a) == ESP_ORIGINALE and r32(a - 0x1000) == ESP_FIRMA then return a end
+  end
+  if not (SOLO_ALLENATORI or CONDIVIDI_ESP) then return nil end
+  for a = 0x180000, 0x240000, 4 do
+    if (a < 0x1B4000 or a > 0x1C8000) and r32(a) == ESP_ORIGINALE and r32(a - 0x1000) == ESP_FIRMA then return a end
   end
   return nil
 end
 
 local esp_segnalato = nil                                       -- ultimo esito mandato all'app
 
+local esp_ricerche_fallite = 0
 local function assicura_sito_esp()
   if esp_sito and sito_valido(esp_sito) then return true end
   if lotta.esp_cercato then return false end     -- una ricerca sola per lotta (e' lenta)
   lotta.esp_cercato = true
+  if not esp_sito and esp_ricerche_fallite >= 3 and not (SOLO_ALLENATORI or CONDIVIDI_ESP) then return false end
   local trovato = cerca_sito_esp()
-  if trovato then esp_sito = trovato end
+  if trovato then esp_sito = trovato elseif not esp_sito then esp_ricerche_fallite = esp_ricerche_fallite + 1 end
   local esito = trovato and ("si" .. trovato) or "no"
-  if esito ~= esp_segnalato and (trovato or esp_segnalato == nil) then
+  if esito ~= esp_segnalato and (trovato or (esp_segnalato == nil and (SOLO_ALLENATORI or CONDIVIDI_ESP))) then
     esp_segnalato = esito
     coda_app[#coda_app + 1] = { tipo = "esp_sito", ok = trovato ~= nil, indirizzo = trovato }
     if trovato then salva_calibrazione() end
@@ -239,6 +247,12 @@ local function ripristina_condividi()
   if cond_sito and cond_orig and r32(cond_sito) == COND_FIRMA and r16(cond_sito + 4) == NOP then
     w16(cond_sito + 4, cond_orig)
   end
+end
+
+-- il codice di lotta e' in memoria? (true / false; nil se non sappiamo ancora dove sta)
+local function codice_lotta_caricato()
+  if not esp_sito then return nil end
+  return sito_valido(esp_sito)
 end
 
 local function ripristina_esp()
@@ -670,8 +684,7 @@ local function dettagli_lotta()
   for i = 0, 5 do
     local pk = leggi_pkm(A.nemico + i * 0xDC, true)
     if not pk then break end
-    nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps, ps_max = pk.ps_max, mosse = pk.mosse,
-                            pp = pk.pp, stat = pk.stat, stato_alt = pk.stato_alt, soprannome = pk.soprannome }
+    nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps }
     if not lotta.allenatore and lotta.letto then break end      -- selvatico: uno solo
   end
   return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici }
@@ -679,7 +692,7 @@ end
 local function firma_dettagli(d)
   if not d then return "-" end
   local t = { tostring(d.allenatore), tostring(d.letto) }
-  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps .. ":" .. n.stato_alt end
+  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps end
   return table.concat(t, ";")
 end
 local ultima_firma_dettagli = nil
@@ -693,6 +706,7 @@ end
 
 -- all'inizio di una lotta (quando si sa se e' un selvatico): quanta esperienza dare
 local function prepara_esperienza()
+  assicura_sito_esp()
   if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
   if not SOLO_ALLENATORI then lotta.molt = nil; return end
   lotta.molt = 0                                 -- selvatico: niente; allenatore: niente finche' l'app non risponde
@@ -774,9 +788,17 @@ local function aggiorna_lotta(fc)
     end
   end
 
-  -- fine lotta: con l'indicatore calibrato lo sappiamo subito, altrimenti col cambio di zona
+  -- fine lotta: con l'indicatore calibrato lo sappiamo subito; altrimenti quando il codice di lotta
+  -- sparisce dalla memoria (due controlli di fila), o col cambio di zona
   if lotta.attiva and lotta.letto then
-    if flag == false or cambio_zona then lotta.attiva = false; lotta.finita = fc end
+    local caricato = codice_lotta_caricato()
+    if caricato then lotta.codice_visto = true end
+    -- conta solo se in questa lotta il codice c'era (un indirizzo vecchio o di un'altra versione non deve chiudere le lotte)
+    if caricato == false and lotta.codice_visto then lotta.via = (lotta.via or 0) + 1 else lotta.via = 0 end
+    if flag == false or cambio_zona or lotta.via >= 2 then
+      lotta.attiva = false; lotta.finita = fc
+      diag.fine_lotta = flag == false and "indicatore" or cambio_zona and "cambio di zona" or "codice di lotta sparito"
+    end
   end
   -- la squadra si aggiorna qualche istante dopo la fine: aspettiamo 2 secondi prima di dire vinta/persa
   if not lotta.attiva and lotta.finita and fc - lotta.finita >= 120 then fine_lotta() end
@@ -821,7 +843,11 @@ local function attivita_attuale(fc)
   if not lotta.attiva or not lotta.nemico then return { lotta = false } end
   -- senza indicatore calibrato la fine della lotta si vede solo cambiando zona: dopo 90 s senza
   -- movimenti dei PS del nemico la consideriamo finita (solo per la visualizzazione)
-  if not cal_lotta.addr and fc - (lotta.vivo or lotta.inizio) > 60 * 90 then return { lotta = false } end
+  -- senza indicatore e senza codice di lotta conosciuto la fine si vede solo cambiando zona:
+  -- dopo 4 minuti senza movimenti dei PS del nemico la consideriamo finita (solo per la visualizzazione)
+  if not cal_lotta.addr and not lotta.codice_visto and fc - (lotta.vivo or lotta.inizio) > 60 * 240 then
+    return { lotta = false }
+  end
   local a = { lotta = true, specie = lotta.nemico.specie, livello = lotta.nemico.livello, ps = lotta.ps, ps_max = lotta.ps_max }
   if lotta.letto then a.allenatore = lotta.allenatore or 0 end
   return a
@@ -961,7 +987,8 @@ while true do
             stato_lotta = diag.stato_lotta, in_lotta = lotta.attiva == true, lotta_calibrata = cal_lotta.addr,
             lotta_candidati = n_candidati(), lotte_viste = cal_lotta.lotte, ultimo_nemico = diag.nemico, ultimo_allenatore = diag.allenatore,
             medaglie = diag.medaglie, squadra = squadra and #squadra or 0, pc = box_ok and #box or -1,
-            pc_calibrato = box_ancora ~= nil, rom_nome = gameinfo.getromname(), run_rom = run_rom }
+            pc_calibrato = box_ancora ~= nil, rom_nome = gameinfo.getromname(), run_rom = run_rom,
+            fine_lotta = diag.fine_lotta, codice_lotta = esp_sito }
         end
         ultimo_invio = fc
         if invia(dati) then

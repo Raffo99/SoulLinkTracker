@@ -864,10 +864,11 @@ class Finestra(QMainWindow):
             self._comandi_lua.append(f"ESP {x.get('allenatore')} {r['n']}")
         o = L.OBIETTIVO_DA_ID.get(x.get("allenatore") or -1)
         chi = o["nome"] if o else "l'allenatore"
+        # niente livelli né nomi: non deve far capire com'è la squadra dell'allenatore
         if r["n"] > 0:
-            t = f"Lotta con {chi}: esperienza ×{r['n']}, verso il Lv.{r['obiettivo']}"
+            t = f"Lotta con {chi}: esperienza ×{r['n']}"
         elif r.get("obiettivo"):
-            t = f"Lotta con {chi}: niente esperienza, sei già al Lv.{r['obiettivo']} o sopra"
+            t = f"Lotta con {chi}: niente esperienza, sei già al suo livello"
         else:
             t = f"Lotta con {chi}: esperienza normale ({r.get('motivo')})"
         self._log(t, ORO if r["n"] else TENUE)
