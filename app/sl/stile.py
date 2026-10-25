@@ -96,6 +96,9 @@ QPushButton#partita {{ background: rgba(255,255,255,0.06); border: 1px solid rgb
 QPushButton#partita:hover {{ background: rgba(139,108,255,0.22); border-color: rgba(139,108,255,0.5); }}
 QListWidget#partite::item {{ padding: 0; margin: 2px 0; border-radius: 12px; }}
 QListWidget#partite::item:selected {{ background: rgba(139,108,255,0.16); border: 1px solid rgba(139,108,255,0.45); }}
+QPushButton#sceltaLotta {{ background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; padding: 0; }}
+QPushButton#sceltaLotta:checked {{ background: rgba(139,108,255,0.22); border-color: rgba(139,108,255,0.6); }}
+QPushButton#sceltaLotta:disabled {{ background: rgba(255,92,108,0.06); }}
 QPushButton#pericolo {{ background: rgba(255,92,108,0.16); color: #ffb3bc; font-weight: 600; border: 1px solid rgba(255,92,108,0.4); }}
 QPushButton::menu-indicator {{ subcontrol-position: right center; right: 7px; width: 8px; }}
 QLineEdit, QComboBox, QPlainTextEdit, QSpinBox {{ background: rgba(0,0,0,0.25); border: 1px solid {BORDO}; border-radius: 9px; padding: 6px 9px;
@@ -149,6 +152,7 @@ QToolTip {{ background: #232637; color: {TESTO}; border: 1px solid #3a3f56; bord
 QMenu {{ background: #1f2231; border: 1px solid #343850; border-radius: 10px; padding: 6px; }}
 QMenu::item {{ padding: 7px 18px 7px 14px; border-radius: 7px; }}
 QMenu::item:selected {{ background: rgba(139,108,255,0.25); }}
+QMenu::section {{ color: #7c8199; font-size: 7.5pt; font-weight: 700; padding: 8px 14px 3px 14px; background: transparent; }}
 QMenu::separator {{ height: 1px; background: {BORDO}; margin: 6px 8px; }}
 QMenu::indicator {{ width: 14px; height: 14px; left: 4px; }}
 QLabel#dialogoTitolo {{ font-size: 12pt; font-weight: 700; color: {TESTO}; }}

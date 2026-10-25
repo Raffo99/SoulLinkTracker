@@ -1,4 +1,4 @@
-# Soul Link Tracker 4.6 – Pokémon Nero 2 / Bianco 2
+# Soul Link Tracker 4.9 – Pokémon Nero 2 / Bianco 2
 
 Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzlocke **da 2 a 4 giocatori**. Le regole del Soul Link le applica l'app stessa; la partita condivisa sta in un piccolo database gratuito su **Supabase**. Niente sito, niente porte da aprire sul router, e non serve che l'altro sia acceso.
 
@@ -67,6 +67,35 @@ Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cance
 - **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (tappe e traguardi; doppio clic per correggere), Cimitero, Statistiche, Diario, Sistema (registro dell'app e diagnostica).
 
 Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
+
+## Tracker della lotta
+Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta:
+- l'avversario con tipi, livello, PS, stato (SON, PAR, SCO…) e se il tuo Pokémon è più veloce;
+- le **sue mosse** e quanto fanno male al tuo Pokémon (×2, ×½, ★ = stesso tipo);
+- la tua squadra, ognuno con la sua **mossa migliore** contro l'avversario;
+- le **mosse** del Pokémon scelto: tipo, fisica/speciale, potenza, efficacia (×4, ×2, ×1, ×½, ×0), **STAB** e PP.
+Clicca un tuo Pokémon o un Pokémon avversario per analizzare quello. I dati delle mosse sono quelli di Nero 2/Bianco 2. PS e PP dei tuoi Pokémon sono quelli di inizio lotta (durante la lotta il gioco li tiene altrove).
+
+## Correggere il tracker
+- **Doppio clic** su un Pokémon (nelle Coppie o nel Cimitero), oppure tasto destro → *Modifica…* nei Percorsi: puoi cambiare lo stato, riportarlo in vita insieme ai suoi legati, cambiare il luogo della cattura (cambia anche il legame), contarlo come cattura valida o toglierlo dal tracker. Ogni correzione resta scritta nel diario.
+- **Altro → Controlla il tracker con il gioco…** confronta i tuoi Pokémon con squadra e PC letti dalla memoria: Pokémon morti nel tracker ma vivi nel gioco, liberati che sono ricomparsi, Pokémon che non trovo più. Se dopo un backup ricaricato (o all'avvio del gioco) le cose non tornano, la finestra si apre da sola.
+
+## Regole opzionali
+Dal menu **Regole** scegli cosa usare: tutorial, clausola doppioni, clausola shiny, **tipo primario unico in squadra** (spento finché non lo attivi), avviso del **level cap**, **Condividi esperienza** (tutta la squadra prende esperienza, anche chi non ha combattuto: si usa con o senza la modalità qui sotto) ed esperienza solo dagli allenatori.
+
+## Tempo della run
+Il tempo in alto conta solo quando almeno un giocatore sta giocando: se nessuno ha il gioco aperto si ferma.
+
+## Tasti
+Quando usi un'altra finestra (Discord, il browser…) il gioco ignora la tastiera, anche se BizHawk è incastrato nell'app. Le scorciatoie di BizHawk che potevano scattare per sbaglio (F = avanza di un frame, Pausa, F1–F10…) sono disattivate. Se giochi con il controller tenendo l'app in secondo piano, togli la spunta in *Impostazioni*.
+
+## Modalità sperimentale: esperienza solo dagli allenatori
+Per run senza farmare: **Regole → Esperienza solo dagli allenatori (sperimentale)**. Vale per tutti i giocatori della partita.
+- **Selvatici**: non danno esperienza. Niente livelli che salgono e poi tornano indietro: il gioco proprio non la assegna.
+- **Allenatori**: danno quanto basta per portare il tuo **primo Pokémon** della squadra al livello del Pokémon più forte di quell'allenatore, senza mai superare il level cap. Se sei già a quel livello o sopra, niente esperienza. Se in lotta usi più Pokémon, se la dividono come sempre. Livelli, mosse nuove ed evoluzioni li gestisce il gioco normalmente.
+- All'inizio di ogni lotta con un allenatore una notifica dice quanta esperienza darà (per esempio "esperienza ×3, verso il Lv.15"). In alto compare la scritta *EXP solo dagli allenatori*.
+
+Come funziona: come i codici Action Replay "moltiplicatore di esperienza", durante la lotta l'app cambia due istruzioni del calcolo dell'esperienza (×0 per i selvatici, ×N per gli allenatori) e a fine lotta le rimette com'erano. Le tocca solo se trova esattamente il codice atteso; la prima volta lo cerca da sola e poi si ricorda dove sta. Se nella tua versione non lo trova, te lo dice e l'esperienza resta normale.
 
 ## Backup e chiusura
 - **Backup automatici**: ogni 10 minuti l'app salva il punto esatto in cui sei (uno stato salvato di BizHawk) insieme a una copia del salvataggio del gioco. L'intervallo si cambia in *Impostazioni → Backup automatico ogni*.

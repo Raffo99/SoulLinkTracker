@@ -13,6 +13,7 @@ _DATI = json.loads((_base / "risorse" / "dati.json").read_text("utf-8"))
 POKEDEX, LUOGHI, ZONE, ZONE_NOMI_EN = _DATI["pokedex"], _DATI["luoghi"], _DATI["zone"], _DATI["zone_nomi_en"]
 
 MAX_GIOCATORI = 4
+TEMPO_PAUSA = 90          # secondi senza battiti oltre i quali il tempo della run si ferma
 LEVEL_CAP = [13, 18, 24, 30, 33, 39, 48, 51, 58, 59]
 NOMI_CAP = ["Cheren", "Rosy", "Artemisio", "Camelia", "Rafan", "Anisia", "Aristide", "Ciprian", "Superquattro", "Iris"]
 
@@ -119,7 +120,7 @@ def _azzera_run(s, ora):
     s.update({"stato": "in_corso", "motivo": "", "iniziata": ora, "lega": False, "pokemon": {}, "incontri": [],
               "eventi": [], "messaggi": {}, "ordine": 0, "avvisi_inviati": [], "obiettivi": {}})
     if EXTRA:
-        s.update({"traguardi": {}, "medaglie_t": {}})
+        s.update({"traguardi": {}, "medaglie_t": {}, "tempo": 0, "tempo_vivo": 0})
     for g in s["giocatori"].values():
         g["medaglie"] = 0
         g["box_ok"] = False
@@ -256,6 +257,8 @@ def game_over(s, ora, motivo):
     s["storico"].append({"run": s["run"], "motivo": motivo, "inizio": s["iniziata"], "fine": ora,
                          "medaglie": max([0] + [g.get("medaglie") or 0 for g in s["giocatori"].values()]),
                          "catture": len(pk), "morti": sum(1 for p in pk if p["stato"] == "morto")})
+    if EXTRA:
+        s["storico"][-1]["tempo"] = round(s.get("tempo") or 0)
 
 
 def _controlla_estinzione(s, ora):
@@ -301,6 +304,8 @@ def _completa_obiettivo(s, ora, g, o, come):
             pk = list(s["pokemon"].values())
             s["storico"].append({"run": s["run"], "motivo": "VINTA", "inizio": s["iniziata"], "fine": ora, "medaglie": 8,
                                  "catture": len(pk), "morti": sum(1 for p in pk if p["stato"] == "morto"), "vinta": True})
+            if EXTRA:
+                s["storico"][-1]["tempo"] = round(s.get("tempo") or 0)
         else:
             _msg(s, g, "Hai battuto la Campionessa! Ora tocca agli altri.")
 
@@ -659,10 +664,54 @@ def azione(s, ora, d):
             _evento(s, ora, f"{nome(p)} di {p['giocatore']} segnato a mano come «{ {'squadra': 'in squadra', 'box': 'nel box', 'valido': 'cattura valida'}.get(st, st) }»")
         elif st == "valido":
             p["irregolare"] = False
+    elif a == "rianima":
+        # correzione a mano (per esempio dopo aver ricaricato un salvataggio): torna vivo, nel box, con i suoi legati
+        k = d.get("chiave")
+        p = s["pokemon"].get(k)
+        if not p:
+            return {"errore": "Pokémon non trovato"}
+        gruppo = [k] + (partners(s, k) if d.get("gruppo", True) is not False else [])
+        if d.get("gruppo") is False and any(s["pokemon"][x]["stato"] == "morto" for x in partners(s, k)):
+            return {"errore": "un suo compagno di legame è ancora morto: rianimali insieme"}
+        nomi = []
+        for x in gruppo:
+            q = s["pokemon"][x]
+            if q["stato"] == "morto":
+                q.update(stato="box", causa="")
+                q.pop("morto", None)
+                nomi.append(f"{nome(q)} ({q['giocatore']})")
+        if nomi:
+            _evento(s, ora, "Riportati in vita a mano: " + ", ".join(nomi), "allarme")
+    elif a == "modifica_pokemon":
+        k = d.get("chiave")
+        p = s["pokemon"].get(k)
+        if not p:
+            return {"errore": "Pokémon non trovato"}
+        if d.get("luogo") is not None and _s(d["luogo"]) != _s(p["luogo"]):
+            vecchio = nome_luogo(p["luogo"])
+            p["luogo"] = d["luogo"]
+            _evento(s, ora, f"{nome(p)} di {p['giocatore']}: luogo cambiato a mano da {vecchio} a {nome_luogo(p['luogo'])}", "allarme")
+        if d.get("soprannome") is not None:
+            p["soprannome"] = str(d["soprannome"])[:12]
+    elif a == "elimina_pokemon":
+        k = d.get("chiave")
+        p = s["pokemon"].pop(k, None)
+        if not p:
+            return {"errore": "Pokémon non trovato"}
+        _evento(s, ora, f"{nome(p)} di {p['giocatore']} tolto a mano dal tracker", "allarme")
     elif a == "game_over":
         game_over(s, ora, d.get("motivo") or "game over dichiarato a mano")
     elif a == "nuova_run":
         nuova_run(s, ora)
+    elif a == "battito":
+        # tempo di gioco della run: conta solo quando almeno un giocatore sta giocando.
+        # Ogni app manda un battito al minuto; due battiti vicini (di giocatori diversi) non contano doppio.
+        if s["stato"] != "in_corso":
+            return {"ok": True}
+        dt = ora - (s.get("tempo_vivo") or 0)
+        if 0 < dt <= TEMPO_PAUSA:
+            s["tempo"] = (s.get("tempo") or 0) + dt
+        s["tempo_vivo"] = ora
     elif a == "reset_partita":
         giocatori = {g: {"entrato": x.get("entrato", ora), "medaglie": 0} for g, x in s["giocatori"].items()}
         id_msg = s.get("id_msg", 0)
@@ -745,7 +794,7 @@ def vista(s, ora):
         if p["stato"] != "squadra" or p["irregolare"]:
             continue
         cap = cap_di(s, p["giocatore"])
-        if (p.get("livello") or 0) > cap:
+        if (p.get("livello") or 0) > cap and s["regole"].get("level_cap", True) is not False:
             avvisi.append(f"{p['giocatore']}: {nome(p)} è al livello {p['livello']}, sopra il cap {cap}")
         lista = per_tipo.setdefault(p["tipi"][0], [])
         if _s(p["luogo"]) not in lista:
@@ -753,7 +802,7 @@ def vista(s, ora):
         if any(pk[x]["stato"] == "box" for x in p["partners"]):
             avvisi.append(f"{p['giocatore']}: {nome(p)} è in squadra ma il suo compagno è nel box")
     for t, l in per_tipo.items():
-        if len(l) > 1:
+        if len(l) > 1 and s["regole"].get("tipi"):      # regola opzionale (spenta se non scelta)
             avvisi.append(f"Tipo primario {t} ripetuto in squadra: {', '.join(nome_luogo(x) for x in l)}")
     for p in pk.values():
         if p["stato"] == "squadra" and p["irregolare"]:
@@ -774,6 +823,7 @@ def vista(s, ora):
 
     return {
         "run": s["run"], "edizione": s.get("edizione", ""), "stato": s["stato"], "motivo": s["motivo"], "iniziata": s["iniziata"], "lega": s.get("lega"),
+        "tempo": s.get("tempo"), "tempo_vivo": s.get("tempo_vivo"),
         "regole": s["regole"], "level_cap": LEVEL_CAP, "nomi_cap": NOMI_CAP,
         "giocatori": {g: {**s["giocatori"][g], "online": ora - (s["giocatori"][g].get("visto") or 0) < 45, "cap": cap_di(s, g),
                           "zona_nome": nome_luogo(luogo_incontro(s, {"zona": s["giocatori"][g]["zona"]})) if s["giocatori"][g].get("zona") is not None else None}

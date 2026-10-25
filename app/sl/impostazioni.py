@@ -119,6 +119,11 @@ class Impostazioni(QDialog):
         self.backup.setToolTip("Ogni quanti minuti l'app fa un backup del punto in cui sei (stato salvato di BizHawk "
                                "e copia del salvataggio del gioco). Alla chiusura lo fa sempre.")
         f3.addRow("Backup automatico ogni", self.backup)
+        self.blocca = QCheckBox("Il gioco ignora i tasti quando usi un'altra finestra")
+        self.blocca.setToolTip("Se scrivi su Discord o altrove, i tasti non muovono il personaggio. Disattivalo se giochi "
+                               "con il controller tenendo l'app in secondo piano.")
+        self.blocca.setChecked(cfg.get("blocca_input", True) is not False)
+        f3.addRow("", self.blocca)
         v.addWidget(g3)
 
         v.addStretch()
@@ -168,6 +173,6 @@ class Impostazioni(QDialog):
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
                  salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked(),
-                 backup_minuti=self._minuti[self.backup.currentIndex()])
+                 backup_minuti=self._minuti[self.backup.currentIndex()], blocca_input=self.blocca.isChecked())
         c.salva()
         self.accept()

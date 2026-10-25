@@ -40,7 +40,8 @@ PREDEFINITA = {
     "cartella_saveram": "",
     "diagnostica": False,
     "chiedi_partita": True,
-    "backup_minuti": 10,             # backup automatico (0 = mai; alla chiusura si fa sempre)          # all'avvio chiede quale partita giocare
+    "backup_minuti": 10,             # backup automatico (0 = mai; alla chiusura si fa sempre)
+    "blocca_input": True,            # i tasti non arrivano al gioco quando usi un'altra finestra
 }
 
 

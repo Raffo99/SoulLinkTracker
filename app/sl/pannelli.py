@@ -141,6 +141,7 @@ def corto(t, n=11):
 class PannelloPercorsi(QTableWidget):
     def __init__(self, azione, sprite):
         super().__init__()
+        self.apri_pokemon = None
         self.setShowGrid(False)
         self.setAlternatingRowColors(True)
         self.setFrameShape(QFrame.NoFrame)
@@ -233,6 +234,8 @@ class PannelloPercorsi(QTableWidget):
         cat, inc = x.get("cattura"), x.get("incontro")
         if cat:
             m.addSection(f"{nome(cat)} ({g})")
+            if self.apri_pokemon:
+                m.addAction("Modifica…", lambda: self.apri_pokemon(cat["chiave"]))
             for st, t in (("squadra", "in squadra"), ("box", "nel box"), ("morto", "morto"), ("liberato", "liberato")):
                 m.addAction(f"Segna come {t}", lambda st=st, t=t: self._conferma(f"Segnare {nome(cat)} come «{t}»?",
                             {"azione": "stato_pokemon", "chiave": cat["chiave"], "stato": st}))
@@ -438,7 +441,7 @@ class PannelloStatistiche(QScrollArea):
             for r in reversed(storico[-15:]):
                 col = ORO if r.get("vinta") else TENUE
                 l = QLabel(f"<b>Run #{r['run']}</b>{' ★' if r.get('vinta') else ''}  ·  {r.get('medaglie', 0)} medaglie  ·  "
-                           f"{r.get('catture', 0)} catture  ·  {r.get('morti', 0)} persi  ·  {durata_breve(r['fine'] - r['inizio'])}"
+                           f"{r.get('catture', 0)} catture  ·  {r.get('morti', 0)} persi  ·  {durata_breve(r['tempo'] if r.get('tempo') is not None else r['fine'] - r['inizio'])}"
                            f"<br><span style='color:{col}'>{r['motivo']}</span>")
                 l.setWordWrap(True)
                 self.v.addWidget(l)
@@ -476,6 +479,7 @@ class PannelloCimitero(QListWidget):
             self.addItem(it)
         for p in morti:
             it = QListWidgetItem(f"{nome(p)}\n{p['giocatore']} · Lv.{p.get('livello', '?')}")
+            it.setData(Qt.UserRole, p.get("chiave"))
             it.setToolTip(p.get("causa", ""))
             pm = self.sprite.pixmap(p["specie"], 56)
             if pm:

@@ -55,6 +55,9 @@ end
 
 -- ---------------- memoria ----------------
 local DOM = "Main RAM"
+local coda_app = {}             -- risposte ai comandi dell'app (backup fatto, stato caricato, esperienza)
+local lotta = { attiva = false } -- lotta in corso (usata anche dai comandi dell'app e dall'esperienza)
+local salva_calibrazione        -- definita piu' avanti
 local function r8(a)  return memory.read_u8(a, DOM) end
 local function r16(a) return memory.read_u16_le(a, DOM) end
 local function r32(a) return memory.read_u32_le(a, DOM) end
@@ -73,6 +76,7 @@ local OFF = {
   conta_squadra = 0x19724, squadra = 0x19728, zona = 0x41B5C, zona_padre = 0x41B44,
   allenatore_nemico = 0x5262E, nemico = 0x53B70, medaglie = 0x21A24,
   box = 0x19724 - 0x18E04 + 0x400,   -- il PC in RAM ha la stessa disposizione del salvataggio
+  medicine = 0x19724 - 0x18E04 + 0x18BD8,   -- tasca Medicine della borsa (salvataggio 0x18400 + 0x7D8, 48 posti)
 }
 local STATO_LOTTA = BIANCO2 and 0x1B5178 or 0x1B5138
 local SQUADRA_FISSA = BIANCO2 and 0x21E42C or 0x21E3EC   -- indirizzo della versione europea (yPokeStats)
@@ -110,14 +114,137 @@ local function leggi_pkm(addr, con_lotta)
     nome[#nome + 1] = utf8.char(c)
   end
   local pk = { pid = pid, specie = specie, soprannome = table.concat(nome), luogo = b("D", 0x18),
+               esperienza = b("A", 0x08) | (b("A", 0x0A) << 16),
                uovo = ((b("B", 0x12) >> 14) & 1) == 1, id_allenatore = b("A", 4), id_segreto = b("A", 6) }
   if con_lotta then
     local bat, s2 = {}, pid
-    for off = 0x88, 0x92, 2 do s2 = prng(s2); bat[off] = r16(addr + off) ~ (s2 >> 16) end
+    for off = 0x88, 0x9A, 2 do s2 = prng(s2); bat[off] = r16(addr + off) ~ (s2 >> 16) end
     pk.livello, pk.ps, pk.ps_max = bat[0x8C] & 0xFF, bat[0x8E], bat[0x90]
     if pk.livello < 1 or pk.livello > 100 or pk.ps_max == 0 or pk.ps > pk.ps_max then return nil end
+    -- per il tracker della lotta: mosse, PP, statistiche, stato (sonno, veleno, scottatura...)
+    pk.mosse = { b("B", 0), b("B", 2), b("B", 4), b("B", 6) }
+    local pp1, pp2, su1, su2 = b("B", 8), b("B", 10), b("B", 12), b("B", 14)
+    pk.pp = { pp1 & 0xFF, pp1 >> 8, pp2 & 0xFF, pp2 >> 8 }
+    pk.pp_su = { su1 & 0xFF, su1 >> 8, su2 & 0xFF, su2 >> 8 }
+    pk.stat = { bat[0x92], bat[0x94], bat[0x96], bat[0x98], bat[0x9A] }    -- att, dif, vel, att.sp, dif.sp
+    pk.stato_alt = bat[0x88] & 0xFF
   end
   return pk
+end
+
+-- ---------------- modalita' "esperienza solo dagli allenatori" ----------------
+-- Il gioco calcola l'esperienza in una funzione del codice di lotta; due istruzioni (lsls r0,r0,#16 / lsrs r4,r0,#16)
+-- si possono sostituire con "movs r4,#N / muls r4,r0": l'esperienza data diventa N volte quella normale
+-- (lo stesso trucco dei codici Action Replay "moltiplicatore di esperienza"). N = 0 per i selvatici,
+-- N scelto dall'app per gli allenatori. Il codice si tocca solo durante la lotta e solo se e' quello atteso.
+local function w16(a, v) memory.write_u16_le(a, v & 0xFFFF, DOM) end
+local ESP_ORIGINALE, ESP_FIRMA = 0x0C040400, 0x68424805          -- istruzioni originali e controllo 0x1000 byte prima
+local esp_sito = nil                                            -- indirizzo trovato (relativo alla RAM)
+
+local function sito_valido(a)
+  if not a or a < 0x1000 or a + 4 > 0x400000 then return false end
+  if r32(a - 0x1000) ~= ESP_FIRMA then return false end
+  local v = r32(a)
+  return v == ESP_ORIGINALE or (v >> 16) == 0x4344 and ((v & 0xFF00) == 0x2400)
+end
+
+local function cerca_sito_esp()
+  -- prima gli indirizzi noti (USA, Giappone) e quello salvato, poi una ricerca nella zona del codice di lotta
+  for _, a in ipairs({ esp_sito or 0, 0x1BD738, 0x1BD0F8, 0x1BD6F8 }) do
+    if sito_valido(a) then return a end
+  end
+  for a = 0x180000, 0x240000, 4 do
+    if r32(a) == ESP_ORIGINALE and r32(a - 0x1000) == ESP_FIRMA then return a end
+  end
+  return nil
+end
+
+local esp_segnalato = nil                                       -- ultimo esito mandato all'app
+
+local function assicura_sito_esp()
+  if esp_sito and sito_valido(esp_sito) then return true end
+  if lotta.esp_cercato then return false end     -- una ricerca sola per lotta (e' lenta)
+  lotta.esp_cercato = true
+  local trovato = cerca_sito_esp()
+  if trovato then esp_sito = trovato end
+  local esito = trovato and ("si" .. trovato) or "no"
+  if esito ~= esp_segnalato and (trovato or esp_segnalato == nil) then
+    esp_segnalato = esito
+    coda_app[#coda_app + 1] = { tipo = "esp_sito", ok = trovato ~= nil, indirizzo = trovato }
+    if trovato then salva_calibrazione() end
+  end
+  return trovato ~= nil
+end
+
+local function applica_esp(n)
+  if not assicura_sito_esp() then return false end
+  n = math.max(0, math.min(255, n or 1))
+  if r32(esp_sito) ~= ((0x4344 << 16) | 0x2400 | n) then
+    w16(esp_sito, 0x2400 | n); w16(esp_sito + 2, 0x4344)
+  end
+  return true
+end
+
+-- ---- Condividi esperienza (opzionale): tutta la squadra prende esperienza anche senza combattere ----
+-- Come il codice Action Replay "Exp Share": dopo le istruzioni 0x9903 0x4281 (ldr r1,[sp,#0xC] / cmp r1,r0)
+-- c'e' il salto che esclude chi non ha partecipato; durante la lotta lo si sostituisce con un "nop" (0x46C0).
+local COND_FIRMA, NOP = 0x42819903, 0x46C0
+local cond_sito, cond_orig, cond_segnalato = nil, nil, nil
+local function e_salto(h) return (h & 0xF000) == 0xD000 and ((h >> 8) & 0xF) < 0xE end
+
+local function cond_valido(a)
+  if not a or a + 6 > 0x400000 or r32(a) ~= COND_FIRMA then return false end
+  local h = r16(a + 4)
+  return e_salto(h) or (h == NOP and cond_orig ~= nil)
+end
+
+local function cerca_cond()
+  local cand = {}
+  local function prova_zona(da, a)
+    for x = da, a, 2 do
+      if r32(x) == COND_FIRMA and e_salto(r16(x + 4)) then cand[#cand + 1] = x end
+    end
+  end
+  if esp_sito then
+    -- vicino al calcolo dell'esperienza: nella versione USA 0xE7B4 byte prima, in quella giapponese 0xE794
+    prova_zona(esp_sito - 0xE7B4 - 0x100, esp_sito - 0xE794 + 0x100)
+  end
+  if #cand == 0 then prova_zona(0x180000, 0x240000) end
+  if #cand == 1 then return cand[1] end          -- solo se il punto e' unico, altrimenti meglio non toccare niente
+  return nil
+end
+
+local function applica_condividi()
+  if not (cond_sito and cond_valido(cond_sito)) then
+    if lotta.cond_cercato then return false end
+    lotta.cond_cercato = true
+    assicura_sito_esp()
+    local trovato = cerca_cond()
+    if trovato then cond_sito = trovato; cond_orig = r16(trovato + 4) end
+    local esito = trovato and ("si" .. trovato) or "no"
+    if esito ~= cond_segnalato and (trovato or cond_segnalato == nil) then
+      cond_segnalato = esito
+      coda_app[#coda_app + 1] = { tipo = "condividi_sito", ok = trovato ~= nil, indirizzo = trovato }
+    end
+    if not trovato then return false end
+  end
+  if r16(cond_sito + 4) ~= NOP then
+    if e_salto(r16(cond_sito + 4)) then cond_orig = r16(cond_sito + 4) end
+    w16(cond_sito + 4, NOP)
+  end
+  return true
+end
+
+local function ripristina_condividi()
+  if cond_sito and cond_orig and r32(cond_sito) == COND_FIRMA and r16(cond_sito + 4) == NOP then
+    w16(cond_sito + 4, cond_orig)
+  end
+end
+
+local function ripristina_esp()
+  if esp_sito and sito_valido(esp_sito) and r32(esp_sito) ~= ESP_ORIGINALE then
+    w16(esp_sito, 0x0400); w16(esp_sito + 2, 0x0C04)
+  end
 end
 
 -- ---------------- indirizzi correnti ----------------
@@ -153,7 +280,7 @@ end
 
 -- ---------------- PC (box) ----------------
 local FILE_CAL = DIR .. "calibrazione.txt"   -- scritto una sola volta se il PC va cercato
-local salva_calibrazione                     -- definita piu' avanti
+-- (salva_calibrazione e' dichiarata in alto)
 local box_ancora = nil                       -- indirizzo assoluto di un posto valido del PC (se trovato con la ricerca)
 do
   local f = io.open(FILE_CAL, "r")
@@ -328,7 +455,9 @@ end
 
 -- ---------------- rete ----------------
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
-local coda_app = {}             -- risposte ai comandi dell'app (backup fatto, stato caricato)
+SOLO_ALLENATORI = false         -- modalita' sperimentale: esperienza solo dagli allenatori
+BLOCCA_INPUT = false            -- true quando l'utente sta usando un'altra finestra
+CONDIVIDI_ESP = false           -- regola opzionale: Condividi esperienza per tutta la squadra
 if APP then stato_rete.ultimo_msg = 0 end
 local function invia(dati)
   local ok, risp
@@ -390,6 +519,22 @@ local function invia(dati)
       avvisa(resto, 12)
     elseif cmd == "DIAG" then
       CFG.diagnostica = resto == "1"
+    elseif cmd == "CONDIVIDI" then
+      local prima = CONDIVIDI_ESP
+      CONDIVIDI_ESP = resto == "1"
+      if prima and not CONDIVIDI_ESP then ripristina_condividi(); lotta.condividi = nil end
+    elseif cmd == "FOCUS" then
+      BLOCCA_INPUT = resto == "0"           -- l'app non e' in primo piano: i tasti non vanno al gioco
+    elseif cmd == "MODO" then
+      local prima = SOLO_ALLENATORI
+      SOLO_ALLENATORI = resto:match("^(%S+)") == "allenatori"
+      if prima and not SOLO_ALLENATORI then ripristina_esp(); lotta.molt = nil end
+    elseif cmd == "ESP" then
+      -- moltiplicatore per la lotta con l'allenatore in corso (risposta dell'app)
+      local all, n = resto:match("^(%d+)%s+(%d+)")
+      if lotta.attiva and lotta.allenatore == tonumber(all) and SOLO_ALLENATORI then
+        lotta.molt = tonumber(n); applica_esp(lotta.molt)
+      end
     elseif cmd == "ERR" then
       stato_rete.errore = resto; avvisa("Server: " .. resto, 10)
     end
@@ -399,7 +544,7 @@ end
 
 -- ---------------- stato del gioco ----------------
 local coda = {}                 -- eventi da spedire (incontri, esiti)
-local lotta = { attiva = false }
+lotta = { attiva = false }
 local controllo_cattura = nil   -- {pid, fino_a, era_piena}
 local ultima_firma, ultima_firma_box = nil, nil
 local ultimo_invio, ultimo_controllo_box = -99999, -99999
@@ -438,6 +583,8 @@ do
     for riga in f:lines() do
       local v = riga:match("lotta=(%d+)")
       if v then cal_lotta.addr = tonumber(v) end
+      local e = riga:match("esp=(%d+)")
+      if e then esp_sito = tonumber(e) end
     end
     f:close()
   end
@@ -447,6 +594,7 @@ salva_calibrazione = function()
   if not f then return end
   if box_ancora then f:write("box_delta=" .. box_ancora.delta .. "\n") end
   if cal_lotta.addr then f:write("lotta=" .. cal_lotta.addr .. "\n") end
+  if esp_sito then f:write("esp=" .. esp_sito .. "\n") end
   f:close()
 end
 local function e_lotta(v) return v == 0x2100 or v == 0x2101 end
@@ -504,10 +652,68 @@ local function squadra_viva()
   return false
 end
 -- una lotta contro un allenatore e' finita: vinta se ci resta almeno un Pokemon in piedi
+-- squadra avversaria (fino a 6 Pokemon in fila dopo il primo)
+local function nemici_allenatore()
+  local out = {}
+  if not A.nemico then return out end
+  for i = 0, 5 do
+    local pk = leggi_pkm(A.nemico + i * 0xDC, true)
+    if not pk then break end
+    out[#out + 1] = { specie = pk.specie, livello = pk.livello }
+  end
+  return out
+end
+
+local function dettagli_lotta()
+  if not lotta.attiva or not A.nemico then return nil end
+  local nemici = {}
+  for i = 0, 5 do
+    local pk = leggi_pkm(A.nemico + i * 0xDC, true)
+    if not pk then break end
+    nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps, ps_max = pk.ps_max, mosse = pk.mosse,
+                            pp = pk.pp, stat = pk.stat, stato_alt = pk.stato_alt, soprannome = pk.soprannome }
+    if not lotta.allenatore and lotta.letto then break end      -- selvatico: uno solo
+  end
+  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici }
+end
+local function firma_dettagli(d)
+  if not d then return "-" end
+  local t = { tostring(d.allenatore), tostring(d.letto) }
+  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps .. ":" .. n.stato_alt end
+  return table.concat(t, ";")
+end
+local ultima_firma_dettagli = nil
+
 local function fine_lotta()
   if lotta.allenatore and not lotta.chiusa then
     lotta.chiusa = true
     coda[#coda + 1] = { tipo = "fine_allenatore", allenatore = lotta.allenatore, vinta = squadra_viva() }
+  end
+end
+
+-- all'inizio di una lotta (quando si sa se e' un selvatico): quanta esperienza dare
+local function prepara_esperienza()
+  if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
+  if not SOLO_ALLENATORI then lotta.molt = nil; return end
+  lotta.molt = 0                                 -- selvatico: niente; allenatore: niente finche' l'app non risponde
+  if lotta.allenatore then
+    local primo, vivi = nil, 0
+    for _, m in ipairs(squadra or {}) do
+      if m.ps > 0 and not m.uovo then vivi = vivi + 1; primo = primo or m end
+    end
+    coda_app[#coda_app + 1] = { tipo = "allenatore_esp", allenatore = lotta.allenatore, nemici = nemici_allenatore(), vivi = vivi,
+                                primo = primo and { specie = primo.specie, livello = primo.livello, esperienza = primo.esperienza } or nil }
+  end
+  applica_esp(lotta.molt)
+end
+
+local function aggiorna_esperienza()
+  if lotta.attiva and lotta.letto then
+    if SOLO_ALLENATORI and lotta.molt then applica_esp(lotta.molt) end
+    if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
+  elseif not lotta.attiva and lotta.finita then
+    if esp_sito and lotta.molt ~= nil then ripristina_esp(); lotta.molt = nil end   -- a lotta finita il codice torna com'era
+    if lotta.condividi then ripristina_condividi(); lotta.condividi = nil end
   end
 end
 
@@ -557,6 +763,7 @@ local function aggiorna_lotta(fc)
     local all = r16(A.allenatore_nemico)
     diag.allenatore, diag.nemico = all, lotta.nemico.specie
     if all ~= 0 then lotta.allenatore = all end
+    prepara_esperienza()
     if all == 0 then
       local n = lotta.nemico
       local tid, sid = 0, 0
@@ -668,13 +875,31 @@ else
   if not CFG.giocatore or CFG.giocatore == "" then avvisa("Imposta il tuo nome in config.lua!", 30) end
 end
 
+local tasti_rilasciati = nil
+local function blocca_tasti()
+  -- BizHawk accetta i tasti anche in background (serve perche' e' dentro l'app): se l'utente scrive
+  -- in un'altra finestra li forziamo tutti "rilasciati" per questo frame
+  if not tasti_rilasciati then
+    local ok, t = pcall(joypad.get)
+    if not ok or type(t) ~= "table" then return end
+    tasti_rilasciati = {}
+    for k, v in pairs(t) do if type(v) == "boolean" then tasti_rilasciati[k] = false end end
+  end
+  pcall(joypad.set, tasti_rilasciati)
+end
+
 while true do
   local fc = emu.framecount()
+  if APP and BLOCCA_INPUT then blocca_tasti() end
   do
     local ok, tasti = pcall(joypad.get)
     if ok and type(tasti) == "table" then
       for _, v in pairs(tasti) do if v == true then ultimo_input = fc; break end end
     end
+  end
+  -- con l'app: un contatto leggero ogni 15 frame, per sapere subito se l'utente e' passato a un'altra finestra
+  if APP and fc % 30 == 15 and fc - ultimo_invio >= 10 then
+    invia({ ping = true })                 -- non tocca ultimo_invio: i dati veri partono come sempre
   end
   if fc % 30 == 0 then
     risolvi()
@@ -689,6 +914,7 @@ while true do
       end
       if sq then squadra = sq end
       aggiorna_lotta(fc)
+      aggiorna_esperienza()
       aggiorna_controllo_cattura(fc)
       -- il PC si rilegge quando cambia la squadra (deposito/ritiro) o ogni 30 secondi
       local fs = firma_squadra(squadra)
@@ -712,8 +938,10 @@ while true do
       local fb = box_ok and firma_box(box) or nil
       local att = attivita_attuale(fc)
       local fa = firma_attivita(att)
+      local det = APP and att.lotta and dettagli_lotta() or nil
+      local fd = firma_dettagli(det)
       local da_mandare = (#coda > 0) or (squadra and fs ~= ultima_firma) or (fb and fb ~= ultima_firma_box)
-                         or (APP and fa ~= ultima_attivita) or #coda_app > 0
+                         or (APP and fa ~= ultima_attivita) or #coda_app > 0 or (APP and fd ~= ultima_firma_dettagli)
       if da_mandare and not pendente_da then pendente_da = fc elseif not da_mandare then pendente_da = nil end
       -- le richieste bloccano l'emulatore per un attimo: le facciamo quando non stai premendo tasti
       -- con l'app la richiesta e' locale e istantanea: niente attese
@@ -724,6 +952,7 @@ while true do
          or fc - ultimo_invio >= 60 * 60 then
         local dati = { attivo = true, run_rom = run_rom, medaglie = diag.medaglie, zona = diag.zona, attivita = att }
         ultima_attivita = fa
+        if APP and fd ~= ultima_firma_dettagli then dati.lotta_dettagli = det or false; ultima_firma_dettagli = fd end
         if squadra and fs ~= ultima_firma then dati.squadra = squadra end
         if fb and fb ~= ultima_firma_box then dati.squadra = squadra; dati.box = box; dati.box_ok = true end
         if #coda > 0 then dati.eventi = coda end

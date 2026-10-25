@@ -251,7 +251,7 @@ class BarraSuperiore(QFrame):
         self.l_run = etichetta("Run #–", "pill")
         riga.addWidget(self.l_run, 0, Qt.AlignVCenter)
         self.l_tempo = etichetta("0:00:00", "numero")
-        self.l_tempo.setToolTip("Durata della run")
+        self.l_tempo.setToolTip("Tempo di gioco della run: conta solo quando almeno un giocatore sta giocando")
         riga.addWidget(self.l_tempo, 0, Qt.AlignVCenter)
         self.l_conti = etichetta("")
         riga.addWidget(self.l_conti, 0, Qt.AlignVCenter)
@@ -265,6 +265,7 @@ class BarraSuperiore(QFrame):
             h.addWidget(c, 2)
             c.hide()
         self.inizio = None
+        self.tempo = self.tempo_vivo = None
         self.fermo = False
 
     def aggiorna(self, st, io):
@@ -274,6 +275,7 @@ class BarraSuperiore(QFrame):
         self.l_run.setText(f"Run #{st['run']} · {testo}")
         self.l_run.setStyleSheet(f"background:{alfa(col, 0.14)};color:{col};border:1px solid {alfa(col, 0.35)};")
         self.inizio = st.get("iniziata")
+        self.tempo, self.tempo_vivo = st.get("tempo"), st.get("tempo_vivo")
         self.fermo = stato != "in_corso"
         P = list(st["pokemon"].values())
         validi = [p for p in P if not p.get("irregolare")]
@@ -283,7 +285,9 @@ class BarraSuperiore(QFrame):
         self.l_conti.setText(sep.join([
             f"<b>{len(validi)}</b> <span style='color:{TENUE}'>catture</span>",
             f"<b>{coppie}</b> <span style='color:{TENUE}'>legami vivi</span>",
-            f"<b style='color:{KO if morti else TESTO}'>{morti}</b> <span style='color:{TENUE}'>morti</span>"]))
+            f"<b style='color:{KO if morti else TESTO}'>{morti}</b> <span style='color:{TENUE}'>morti</span>"]
+            + ([f"<span style='color:{ORO}'>EXP solo dagli allenatori</span>"] if (st.get("regole") or {}).get("solo_allenatori") else [])
+            + ([f"<span style='color:#7fd1ff'>Condividi Esp.</span>"] if (st.get("regole") or {}).get("condividi_esp") else [])))
         G = list(st["giocatori"])
         colori = colori_giocatori(st)
         ordine = sorted(G, key=lambda g: (g != io, st["giocatori"][g].get("entrato") or 0, g))
@@ -300,7 +304,14 @@ class BarraSuperiore(QFrame):
         self.b_partita.setText(f"{codice or 'nessuna partita'}  ▾")
 
     def tic(self, fine=None):
-        if self.inizio and not self.fermo:
+        if self.tempo is not None:
+            # tempo di gioco condiviso: avanza solo se qualcuno ha giocato nell'ultimo minuto e mezzo
+            t = self.tempo
+            dt = time.time() - (self.tempo_vivo or 0)
+            if not self.fermo and 0 < dt <= 90:
+                t += dt
+            self.l_tempo.setText(durata(t))
+        elif self.inizio and not self.fermo:
             self.l_tempo.setText(durata(time.time() - self.inizio))
 
 
@@ -444,9 +455,14 @@ class CartaLuogo(Carta):
 
 # ----------------------------------------------------------------------------------------------
 class MiniPokemon(QWidget):
+    apri = None            # funzione chiamata con la chiave del Pokémon al doppio clic (la imposta la finestra)
+
     def __init__(self, p, sprite, allinea_destra=False, giocatore=None, colore_g=ACC):
         super().__init__()
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.chiave = (p or {}).get("chiave")
+        if self.chiave:
+            self.setToolTip("Doppio clic per modificare")
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
         h.setSpacing(10)
@@ -492,8 +508,16 @@ class MiniPokemon(QWidget):
             h.addLayout(col, 1)
 
 
+def _doppio_clic(self, ev):
+    if self.chiave and MiniPokemon.apri:
+        MiniPokemon.apri(self.chiave)
+
+
+MiniPokemon.mouseDoubleClickEvent = _doppio_clic
+
+
 COLORI_EVENTI = {"morte": KO, "gameover": KO, "legame": "#b9a8ff", "cattura": OK, "allarme": WARN,
-                 "incontro": "#8fc7ff", "obiettivo": ORO}
+                 "incontro": "#8fc7ff", "obiettivo": ORO, "premio": ORO}
 
 
 class PannelloCoppie(QScrollArea):

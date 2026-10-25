@@ -21,9 +21,11 @@ from .impostazioni import Impostazioni
 from .pannelli import (PannelloCimitero, PannelloDiagnostica, PannelloDiario, PannelloObiettivi, PannelloPercorsi,
                        PannelloStatistiche)
 from .ponte import Ponte
-from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
+from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, MiniPokemon, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
 from . import dialoghi
+from . import logica as L
 from .backup import TIPI as TIPI_BACKUP, GestoreBackup
+from .lotta import CartaLotta
 from .partite import DialogoPartite
 from .reset import DialogoReset
 from .run import GestoreRun, run_della_rom
@@ -70,6 +72,7 @@ class Finestra(QMainWindow):
     _per_cambio = Signal()
     _risposte = Signal(object)        # risposte dello script ai comandi (backup fatto, stato caricato)
     _in_gui = Signal(object)          # funzione da eseguire nel thread dell'interfaccia
+    _dettagli = Signal(object)        # dettagli della lotta in corso (o None a lotta finita)
 
     def __init__(self):
         super().__init__()
@@ -163,6 +166,9 @@ class Finestra(QMainWindow):
         self.c_luogo = CartaLuogo()
         riga.addWidget(self.c_obiettivo, 1)
         riga.addWidget(self.c_luogo, 1)
+        self.c_lotta = CartaLotta(self.sprite)          # durante la lotta prende il posto delle due carte
+        riga.addWidget(self.c_lotta, 2)
+        self.c_lotta.hide()
         dv.addLayout(riga)
         self.l_avvisi = QLabel("")
         self.l_avvisi.setObjectName("avvisi")
@@ -240,13 +246,25 @@ class Finestra(QMainWindow):
         self.b_partenza.setMenu(menu)
         self.m_regole = QMenu(self)
         self.a_regole = {}
+        self.m_regole.addSection("Incontri")
         for k, t in (("tutorial", "Il primo selvatico (tutorial) non conta"), ("doppioni", "Clausola doppioni (stessa famiglia non conta)"),
-                     ("shiny", "Clausola shiny (gli shiny non contano)")):
+                     ("shiny", "Clausola shiny (gli shiny non contano)"),
+                     ("tipi", "Tipo primario unico in squadra (avvisa se ripetuto)"),
+                     ("level_cap", "Avvisa se un Pokémon supera il level cap")):
+            if k == "tipi":
+                self.m_regole.addSection("Squadra")
             a = self.m_regole.addAction(t)
             a.setCheckable(True)
             a.triggered.connect(lambda val, k=k: self._azione({"azione": "regole", "regole": {k: val}}))
             self.a_regole[k] = a
-        self.m_regole.addSeparator()
+        self.m_regole.addSection("Esperienza")
+        self.a_condividi = self.m_regole.addAction("Condividi esperienza: tutta la squadra cresce")
+        self.a_condividi.setCheckable(True)
+        self.a_condividi.triggered.connect(self._condividi_esp)
+        self.a_solo_allenatori = self.m_regole.addAction("Esperienza solo dagli allenatori (sperimentale)…")
+        self.a_solo_allenatori.setCheckable(True)
+        self.a_solo_allenatori.triggered.connect(self._modo_allenatori)
+        self.m_regole.addSection("Correzioni a mano")
         self.m_regole.addAction("Fai contare il mio ultimo incontro ignorato…", self._conta_ignorato)
         self.a_lega = self.m_regole.addAction("Superquattro battuti (level cap di Iris)")
         self.a_lega.setCheckable(True)
@@ -257,6 +275,7 @@ class Finestra(QMainWindow):
         self.a_console.setCheckable(True)
         m_altro.addSeparator()
         m_altro.addAction("Backup e ripristino…", self._apri_backup)
+        m_altro.addAction("Controlla il tracker con il gioco…", lambda: self._controllo(False))
         m_altro.addAction("Cambia partita…", self._cambia_partita)
         m_altro.addSeparator()
         m_altro.addAction("Reset totale…", self._reset_totale)
@@ -286,6 +305,21 @@ class Finestra(QMainWindow):
         self._per_cambio.connect(self._applica_partita)
         self._risposte.connect(self._gestisci_risposte)
         self._in_gui.connect(lambda f: f())
+        self._dettagli.connect(self._mostra_lotta)
+        self._squadra_gioco = []
+        self._box_gioco = None
+        self._det_lotta = None
+        self._controllo_visto = None
+        MiniPokemon.apri = self._apri_pokemon
+        self.p_percorsi.apri_pokemon = self._apri_pokemon
+        self.p_cimitero.itemDoubleClicked.connect(lambda it: it.data(Qt.UserRole) and self._apri_pokemon(it.data(Qt.UserRole)))
+        self._in_primo_piano = True
+        self._t_focus = QTimer(self)
+        self._t_focus.timeout.connect(self._controlla_focus)
+        self._t_focus.start(150)
+        self._t_battito = QTimer(self)
+        self._t_battito.timeout.connect(self._battito)
+        self._t_battito.start(60000)
         self._t_backup = QTimer(self)
         self._t_backup.timeout.connect(self._backup_periodico)
         self._t_backup.start(30000)
@@ -480,27 +514,81 @@ class Finestra(QMainWindow):
         risposte = dati.pop("risposte", None)
         if risposte:
             self._risposte.emit(risposte)
+        if isinstance(dati.get("box"), list) and dati.get("box_ok"):
+            self._box_gioco = list(dati["box"])
+        if dati.get("squadra"):
+            self._squadra_gioco = list(dati["squadra"])
+            if self._det_lotta:
+                self._dettagli.emit(self._det_lotta)
+        if "lotta_dettagli" in dati:                     # solo per il tracker della lotta, non per la partita
+            self._det_lotta = dati.pop("lotta_dettagli") or None
+            self._dettagli.emit(self._det_lotta)
+        if dati.get("ping"):                             # contatto leggero: solo comandi, niente partita
+            return self._righe_per_lua(dati, solo_comandi=True)
         self._gioco_attivo = bool(dati.get("attivo"))
         self.sincro.accoda(dati)
+        return self._righe_per_lua(dati)
+
+    def _righe_per_lua(self, dati, solo_comandi=False):
         righe = ["OK"]
-        if self.sincro.run is not None:
-            righe.append(f"RUN {self.sincro.run} {self.sincro.stato or 'in_corso'}")
-        righe += [per_overlay(r) for r in self.sincro.messaggi_per_lua()]
+        if not solo_comandi:
+            if self.sincro.run is not None:
+                righe.append(f"RUN {self.sincro.run} {self.sincro.stato or 'in_corso'}")
+            righe += [per_overlay(r) for r in self.sincro.messaggi_per_lua()]
         with self._lock:
-            righe += [f"AVVISO {per_overlay(a)}" for a in self._avvisi_lua]
+            if not solo_comandi:
+                righe += [f"AVVISO {per_overlay(a)}" for a in self._avvisi_lua]
+                self._avvisi_lua.clear()
             righe += self._comandi_lua
-            self._avvisi_lua.clear()
             self._comandi_lua.clear()
-        righe.append(f"DIAG {1 if self.cfg['diagnostica'] else 0}")
+        blocca = self.cfg.get("blocca_input", True) is not False and not self._in_primo_piano
+        righe.append(f"FOCUS {0 if blocca else 1}")
+        if not solo_comandi:
+            righe.append(f"DIAG {1 if self.cfg['diagnostica'] else 0}")
+            st = self._ultimo_stato or {}
+            reg = st.get("regole") or {}
+            righe.append("MODO allenatori" if reg.get("solo_allenatori") else "MODO normale")
+            righe.append(f"CONDIVIDI {1 if reg.get('condividi_esp') else 0}")
         return "\n".join(righe) + "\n"
 
+    def _controlla_focus(self):
+        """L'app (con BizHawk dentro) è la finestra in primo piano? Se no, i tasti non devono arrivare al gioco."""
+        if sys.platform == "win32":
+            try:
+                import ctypes
+                u = ctypes.windll.user32
+                u.GetForegroundWindow.restype = ctypes.c_void_p
+                u.GetAncestor.restype = ctypes.c_void_p
+                u.GetAncestor.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+                fg = u.GetForegroundWindow()
+                radice = u.GetAncestor(fg, 2) if fg else None          # GA_ROOT
+                attivo = bool(radice) and int(radice) == int(self.winId())
+            except Exception:
+                attivo = QApplication.applicationState() == Qt.ApplicationActive
+        else:
+            attivo = QApplication.applicationState() == Qt.ApplicationActive
+        if attivo != self._in_primo_piano:
+            self._in_primo_piano = attivo
+
+    def _mostra_lotta(self, det):
+        in_lotta = bool(det)
+        self.c_obiettivo.setVisible(not in_lotta)
+        self.c_luogo.setVisible(not in_lotta)
+        self.c_lotta.setVisible(in_lotta)
+        if in_lotta:
+            self.c_lotta.aggiorna(det, self._squadra_gioco)
+
     def _script_collegato(self, ok):
+        if not ok:
+            self._det_lotta = None
+            self._mostra_lotta(None)
         self.i_script.imposta(ok, "collegato" if ok else "")
         self.sincro.imposta_presenza(emulatore=ok)
         if ok:
             self._log("Lo script di BizHawk è collegato all'app", OK)
             self._ultimo_backup = time.time()
             QTimer.singleShot(1500, self._proponi_ripresa)
+            QTimer.singleShot(12000, self._controllo_automatico)
 
     # ================================================================ stato condiviso
     def _stato_server(self, st):
@@ -527,8 +615,11 @@ class Finestra(QMainWindow):
         else:
             self.l_avvisi.hide()
         for k, a in self.a_regole.items():
-            a.setChecked(st["regole"].get(k, True) is not False)
+            predefinita = k != "tipi"                      # il tipo unico è spento se non scelto
+            a.setChecked(bool(st["regole"].get(k, predefinita)))
         self.a_lega.setChecked(bool(st.get("lega")))
+        self.a_solo_allenatori.setChecked(bool(st["regole"].get("solo_allenatori")))
+        self.a_condividi.setChecked(bool(st["regole"].get("condividi_esp")))
         self.p_coppie.aggiorna(st, io)
         for p in (self.p_percorsi, self.p_obiettivi, self.p_cimitero, self.p_diario, self.p_stat):
             p.aggiorna(st)
@@ -580,6 +671,35 @@ class Finestra(QMainWindow):
             with self._lock:
                 self._comandi_lua.append("SALVABASE")
             self._log("Chiedo allo script il salvataggio attuale…")
+
+    def _condividi_esp(self, val):
+        self.a_condividi.setChecked(not val)
+        testo = ("Per tutti i giocatori della partita: dopo ogni lotta prende esperienza tutta la squadra, "
+                 "anche chi non ha combattuto (come il Condividi Esperienza dei giochi più recenti).\n\n"
+                 "Si può usare con o senza «Esperienza solo dagli allenatori»." if val else
+                 "Torna l'esperienza normale: la prende solo chi ha partecipato alla lotta.")
+        if dialoghi.chiedi(self, "Condividi esperienza?" if val else "Disattivare Condividi esperienza?", testo,
+                           si="Attiva" if val else "Disattiva", no="Annulla"):
+            self._azione({"azione": "regole", "regole": {"condividi_esp": bool(val)}})
+            self.a_condividi.setChecked(bool(val))
+
+    def _modo_allenatori(self, val):
+        self.a_solo_allenatori.setChecked(not val)          # cambia solo se confermato (e poi arriva dallo stato)
+        if val:
+            ok = dialoghi.chiedi(self, "Esperienza solo dagli allenatori?",
+                                 "Modalità sperimentale, per tutti i giocatori della partita:\n\n"
+                                 "• i Pokémon selvatici non danno esperienza;\n"
+                                 "• gli allenatori ne danno quanto basta per portare il tuo primo Pokémon al livello "
+                                 "del loro Pokémon più forte, senza superare il level cap (se sei già a quel livello, niente).\n\n"
+                                 "Funziona come i codici «moltiplicatore di esperienza»: l'app cambia per un attimo il "
+                                 "calcolo dell'esperienza durante la lotta, poi lo rimette com'era.",
+                                 si="Attiva", no="Annulla")
+        else:
+            ok = dialoghi.chiedi(self, "Tornare all'esperienza normale?", "Anche i selvatici torneranno a dare esperienza.",
+                                 si="Torna normale", no="Annulla")
+        if ok:
+            self._azione({"azione": "regole", "regole": {"solo_allenatori": bool(val)}})
+            self.a_solo_allenatori.setChecked(bool(val))
 
     def _conta_ignorato(self):
         st = self._ultimo_stato or {}
@@ -685,6 +805,28 @@ class Finestra(QMainWindow):
 
     def _gestisci_risposte(self, risposte):
         for x in risposte:
+            if x.get("tipo") == "allenatore_esp":
+                self._esperienza_allenatore(x)
+                continue
+            if x.get("tipo") == "condividi_sito":
+                if x.get("ok"):
+                    self._log(f"Condividi esperienza: codice del gioco trovato (0x{x.get('indirizzo', 0):06X})", OK)
+                else:
+                    self._log("Condividi esperienza: non trovo il punto giusto in questa ROM", KO)
+                    dialoghi.avviso(self, "Condividi esperienza non disponibile",
+                                    "Non trovo nel gioco il punto in cui si decide chi prende l'esperienza, quindi resta "
+                                    "normale. Mandami la scheda Sistema.", "avviso")
+                continue
+            if x.get("tipo") == "esp_sito":
+                if x.get("ok"):
+                    self._log(f"Esperienza solo dagli allenatori: codice del gioco trovato (0x{x.get('indirizzo', 0):06X})", OK)
+                else:
+                    self._log("Esperienza solo dagli allenatori: non trovo il calcolo dell'esperienza in questa ROM", KO)
+                    dialoghi.avviso(self, "Modalità non disponibile su questa ROM",
+                                    "Non trovo nel gioco il punto in cui si calcola l'esperienza, quindi in questa lotta "
+                                    "l'esperienza resta normale. Mandami la scheda Sistema: probabilmente serve "
+                                    "l'indirizzo giusto per la tua versione.", "avviso")
+                continue
             r = self._richieste.pop(x.get("id"), None)
             if not r:
                 continue
@@ -703,12 +845,38 @@ class Finestra(QMainWindow):
                 if x.get("ok"):
                     self._log(f"Ripreso il backup {r['percorso'].name}", OK)
                     self.notifiche.mostra("Ripreso da dove avevi lasciato", OK)
+                    QTimer.singleShot(8000, self._controllo_automatico)
                 else:
                     self._log("BizHawk non è riuscito a caricare il backup", KO)
                     dialoghi.avviso(self, "Backup non caricato", "BizHawk non è riuscito a caricare lo stato salvato. "
                                     "Puoi riprovare dalla finestra Backup oppure continuare dal salvataggio del gioco.", "errore")
                 if r["alla_fine"]:
                     r["alla_fine"](bool(x.get("ok")))
+
+    def _esperienza_allenatore(self, x):
+        """Lo script chiede quanta esperienza dare nella lotta con un allenatore appena iniziata."""
+        from . import esperienza
+        st = self._ultimo_stato or {}
+        cap = ((st.get("giocatori") or {}).get(self.cfg["giocatore"]) or {}).get("cap") or 100
+        dividi = (x.get("vivi") or 1) if (st.get("regole") or {}).get("condividi_esp") else 1
+        r = esperienza.moltiplicatore(x.get("nemici") or [], x.get("primo"), cap, dividi)
+        with self._lock:
+            self._comandi_lua.append(f"ESP {x.get('allenatore')} {r['n']}")
+        o = L.OBIETTIVO_DA_ID.get(x.get("allenatore") or -1)
+        chi = o["nome"] if o else "l'allenatore"
+        if r["n"] > 0:
+            t = f"Lotta con {chi}: esperienza ×{r['n']}, verso il Lv.{r['obiettivo']}"
+        elif r.get("obiettivo"):
+            t = f"Lotta con {chi}: niente esperienza, sei già al Lv.{r['obiettivo']} o sopra"
+        else:
+            t = f"Lotta con {chi}: esperienza normale ({r.get('motivo')})"
+        self._log(t, ORO if r["n"] else TENUE)
+        self.notifiche.mostra(t, ORO if r["n"] else TENUE, 5)
+
+    def _battito(self):
+        """Ogni minuto di gioco: il tempo della run avanza (conta solo se almeno un giocatore gioca)."""
+        if self.emu.in_esecuzione and self.ponte.attivo and self._gioco_attivo and self.stato_run == "in_corso":
+            self.sincro.azione({"azione": "battito"})
 
     def _backup_periodico(self):
         minuti = int(self.cfg.get("backup_minuti", 10) or 0)
@@ -778,6 +946,26 @@ class Finestra(QMainWindow):
                            "Ho un backup di quel momento: vuoi ripartire da lì?",
                            si="Riprendi da lì", no="Usa il salvataggio del gioco"):
             self._carica_backup(b)
+
+    def _apri_pokemon(self, chiave):
+        from .correzioni import DialogoPokemon
+        DialogoPokemon(self, chiave).exec()
+
+    def _controllo(self, automatico=False):
+        from .correzioni import DialogoControllo
+        DialogoControllo(self, automatico).exec()
+
+    def _controllo_automatico(self):
+        """Dopo un backup ricaricato o all'avvio del gioco: se tracker e gioco non coincidono, lo dice."""
+        from .correzioni import differenze
+        if not self._ultimo_stato or not self._squadra_gioco or self._in_chiusura:
+            return
+        d = [x for x in differenze(self._ultimo_stato, self.cfg["giocatore"], self._squadra_gioco, self._box_gioco)
+             if x["tipo"] in ("vivo", "ricomparso")]
+        firma = tuple(sorted(x["chiave"] + x["tipo"] for x in d))
+        if d and firma != self._controllo_visto:
+            self._controllo_visto = firma
+            self._controllo(True)
 
     def _apri_backup(self):
         from .finestra_backup import DialogoBackup
