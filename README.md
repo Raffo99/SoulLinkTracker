@@ -1,11 +1,14 @@
-# Soul Link Tracker 4 – Pokémon Nero 2 / Bianco 2
+# Soul Link Tracker 4.5 – Pokémon Nero 2 / Bianco 2
 
-Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzlocke in due. Le regole del Soul Link le applica l'app stessa; la partita condivisa sta in un piccolo database gratuito su **Supabase**. Niente sito, niente porte da aprire sul router, e non serve che l'altro sia acceso.
+Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzlocke **da 2 a 4 giocatori**. Le regole del Soul Link le applica l'app stessa; la partita condivisa sta in un piccolo database gratuito su **Supabase**. Niente sito, niente porte da aprire sul router, e non serve che l'altro sia acceso.
 
 ## Cosa fa da sola
 - **Incontri e catture**: riconosce lotte selvatiche, luogo, primo incontro, cattura o fallimento. Il **primo selvatico della run (tutorial) non conta**.
-- **Coppie e morti**: le coppie si formano in base al luogo di cattura. La morte si porta via il partner, il game over parte da solo.
-- **PC, medaglie, obiettivi**: legge il PC e le medaglie, con il level cap che sale da solo. Segna gli obiettivi (capipalestra, rivale, Team Plasma, Superquattro, Iris). Quando tutti e due battete Iris, la run è vinta.
+- **Gruppi legati e morti**: tutti i Pokémon catturati nello stesso luogo formano un gruppo (coppia con 2 giocatori, fino a 4 con 4). Se ne muore uno muoiono tutti, e se anche un solo giocatore fallisce l'incontro il gruppo si rompe e gli altri vanno nel box. Il game over parte da solo.
+- **PC e medaglie**: legge il PC e le medaglie; il level cap sale da solo.
+- **Obiettivi a tappe**: 9 tappe della storia (da *Si parte!* ad Alisopoli fino alla *Lega Pokémon*), ognuna con i suoi sotto-obiettivi: le lotte importanti (capipalestra, rivale, Team Plasma, Superquattro, Iris) più qualche piccola sfida (prima cattura, squadra di 4, prima evoluzione, squadra al completo). Si segnano da soli, con il tempo dall'inizio della run come negli speedrun. Quando tutti battono Iris, la run è vinta.
+- **Traguardi bonus**: 8 traguardi facoltativi, per esempio *Palestra impeccabile* (medaglia senza perdite dalla precedente), *Disciplina* (medaglia con tutta la squadra entro il cap), *Fedele compagno* (starter vivo alla 4ª medaglia), *Colpo di fortuna* (uno shiny).
+- **Notifiche e statistiche**: morti, legami, obiettivi e traguardi compaiono come notifiche nell'angolo. La scheda *Statistiche* mostra i numeri della run per ogni giocatore e i record tra una run e l'altra.
 - **Nuova run**: genera la ROM randomizzata, riparte dal salvataggio di partenza e riavvia BizHawk sulla ROM giusta.
 - **Regole**: clausola doppioni, clausola shiny e incontro del tutorial, nel menu *Regole*.
 
@@ -17,7 +20,7 @@ Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzl
 3. Copia l'**URL del progetto** (tipo `https://abcdefgh.supabase.co`): lo trovi nella pagina principale del progetto o in *Project Settings → Data API*.
 4. In *Project Settings → API Keys* copia la **Publishable key** (`sb_publishable_…`). Va bene anche la vecchia chiave *anon*.
 5. Scegli un **codice della partita**, cioè una parola segreta tipo `pikachu-raffo-2026`. È la "chiave" della vostra partita: chi non la conosce non la vede.
-6. Manda URL, chiave e codice all'amico.
+6. Manda URL, chiave e codice agli amici (fino a 4 giocatori in tutto, ognuno con un nome diverso).
 
 Il piano gratuito basta e avanza: l'app scarica la partita solo quando cambia qualcosa (pochi KB a sessione). Supabase **mette in pausa i progetti gratuiti dopo un periodo senza uso**. Se succede, l'app segnala l'errore: entra su supabase.com e premi *Restore*.
 
@@ -28,14 +31,16 @@ Il piano gratuito basta e avanza: l'app scarica la partita solo quando cambia qu
 ROM, randomizer e salvataggi non finiscono mai su GitHub: sono esclusi da `.gitignore`.
 
 ## 3. Primo avvio
-Ti serve: **BizHawk 2.9+**, **Java** (adoptium.net), **Universal Pokémon Randomizer ZX** e la tua **ROM** di Nero 2.
+Ti serve: **BizHawk 2.9+**, **Java a 64 bit** (adoptium.net, "Windows x64"), **Universal Pokémon Randomizer ZX** e la tua **ROM** di Nero 2.
 
 1. Avvia `SoulLinkTracker.exe`. Se Windows avvisa che non è firmato: *Ulteriori informazioni → Esegui comunque*.
 2. Nelle **Impostazioni** inserisci:
    - il tuo nome (diverso da quello dell'amico);
    - URL, chiave e codice di Supabase (prova con *Prova collegamento*);
    - dove sta `EmuHawk.exe`;
-   - il randomizer (`PokeRandoZX.jar`), le impostazioni (`.rnqs`, uguali per tutti e due) e la ROM originale.
+   - il randomizer (`PokeRandoZX.jar`), le impostazioni (`.rnqs`, uguali per tutti) e la tua ROM di Nero 2.
+
+   La finestra delle impostazioni si può rimpicciolire: il contenuto scorre.
 3. L'app genera la ROM della run attuale e apre BizHawk dentro la finestra.
 
 L'app usa una configurazione di BizHawk tutta sua. In quella configurazione è attiva l'opzione che fa arrivare i tasti al gioco anche quando BizHawk è dentro un'altra finestra; conseguenza: i tasti arrivano al gioco anche con l'app non in primo piano.
@@ -49,11 +54,36 @@ Il salvataggio di partenza viene copiato su ogni ROM nuova, così si riparte da 
 Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cancellarlo dallo stesso menu.
 
 ## 5. L'interfaccia
-- **In alto**: run, durata, catture, coppie vive, morti; per ogni giocatore medaglie, zona e level cap.
-- **Prossimo obiettivo**: chi devi battere e il livello massimo adesso, più i progressi dell'amico.
-- **Dove sei**: se nel luogo attuale hai ancora l'incontro, per te e per l'amico.
-- **Coppie**: ogni tuo Pokémon accanto al suo partner, con livello e PS. Se il partner è nel box la riga diventa gialla.
-- **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (doppio clic per correggere), Cimitero, Diario, Registro dell'app, Diagnostica.
+- **In alto**: run, durata, catture, legami vivi e morti. Poi una scheda per ogni giocatore con le medaglie, i PS della squadra, il livello più alto rispetto al level cap e **cosa sta facendo in questo momento**:
+  - **IN GIRO** con la zona in cui si trova;
+  - **SELVATICO** con il Pokémon incontrato, il livello e i PS rimasti;
+  - **ALLENATORE** durante una lotta contro un allenatore qualsiasi;
+  - **BOSS** contro capopalestra, rivale, Team Plasma, Superquattro e Iris (la scheda si colora);
+  - **IN ATTESA** se l'app è aperta ma il gioco no, **OFFLINE** se l'app è chiusa.
+  Lo stato degli altri arriva in 3–4 secondi. Passa col mouse su una scheda per vedere la squadra intera.
+- **Prossimo obiettivo**: chi devi battere e il livello massimo adesso, più i progressi degli altri.
+- **Dove sei**: se nel luogo attuale hai ancora l'incontro, per te e per gli altri.
+- **Coppie**: ogni tuo Pokémon accanto ai suoi partner (fino a 3), con livello e PS. Se un partner è nel box la riga diventa gialla.
+- **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (tappe e traguardi; doppio clic per correggere), Cimitero, Statistiche, Diario, Sistema (registro dell'app e diagnostica).
+
+Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
+
+## Più partite
+Puoi avere più Soul Link contemporaneamente, per esempio uno con un gruppo di amici e uno con un altro: ogni partita ha il suo **codice**.
+- **All'avvio** l'app chiede quale partita giocare. Per ognuna vedi a che run siete, chi ci gioca, le medaglie di ciascuno, chi è online e quando ci hai giocato l'ultima volta. Se non vuoi la domanda ogni volta, togli la spunta *Chiedi ogni volta all'avvio*.
+- **Durante il gioco** clicca sul codice in alto, accanto al titolo (oppure **Altro → Cambia partita…**). L'app chiude BizHawk, quindi salva prima in gioco, e riapre il gioco della partita scelta.
+- **Nuova partita** propone un codice tipo `drago-luna-4821`: mandalo agli amici. Loro usano **Entra con un codice**.
+- **Togli** toglie una partita dalla lista, e se vuoi cancella anche ROM e salvataggi di quella partita dal PC. La partita online resta: gli amici possono continuare e tu puoi rientrare con il codice.
+
+ROM, salvataggi di BizHawk e progressi di ogni partita sono separati: le ROM stanno in `Documenti\SoulLink Tracker\rom\<codice>`, e il *Reset totale* cancella solo i file della partita in corso. Il salvataggio di partenza (quello prima dello starter) invece è uno solo e vale per tutte le partite. La partita che usavi con la versione precedente compare da sola nella lista, con i suoi salvataggi.
+
+## Reset totale
+**Altro → Reset totale…** permette di ricominciare da zero la partita in corso (le altre partite non vengono toccate). Puoi scegliere:
+- **azzerare la partita condivisa** (run #1, storico e obiettivi cancellati). Vale per tutti: anche le app degli amici passano da sole a ROM nuove, perché la partita cambia "edizione" e le vecchie ROM non vengono più riprese;
+- **cancellare dal tuo PC** le ROM generate e i salvataggi di BizHawk delle run (salvataggi del gioco e stati salvati);
+- **cancellare anche il salvataggio di partenza** (di solito conviene tenerlo).
+
+Per sicurezza bisogna scrivere RESET. BizHawk viene chiuso prima di cancellare e riaperto alla fine con la ROM nuova.
 
 ## Da verificare la prima volta
 La lettura della memoria è la stessa che hai già verificato con la diagnostica sulla tua versione italiana. La parte nuova è l'incastro della finestra di BizHawk, che ho potuto provare solo con un BizHawk simulato (il mio ambiente non è Windows). Se BizHawk si apre fuori dalla finestra, non riceve i tasti o è tagliato, mandami la scheda **Registro** e uno screenshot.

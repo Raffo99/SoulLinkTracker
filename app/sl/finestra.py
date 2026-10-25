@@ -1,4 +1,6 @@
 """Finestra principale: barra in alto, BizHawk a sinistra, riepilogo e dettagli a destra, comandi in basso."""
+import html
+import unicodedata
 import shutil
 import sys
 import threading
@@ -8,17 +10,20 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow, QMenu,
-                               QMessageBox, QPushButton, QSplitter, QStackedLayout, QStatusBar, QTabWidget,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
+                               QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QStackedLayout, QTabWidget, QVBoxLayout,
+                               QWidget)
 
 from . import VERSIONE
 from .config import Config, StatoLocale, cartella_app
 from .emulatore import Emulatore, adatta, incastra
 from .impostazioni import Impostazioni
-from .pannelli import PannelloCimitero, PannelloDiagnostica, PannelloDiario, PannelloObiettivi, PannelloPercorsi
+from .pannelli import (PannelloCimitero, PannelloDiagnostica, PannelloDiario, PannelloObiettivi, PannelloPercorsi,
+                       PannelloStatistiche)
 from .ponte import Ponte
-from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, OspiteGioco, PannelloCoppie
+from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
+from .partite import DialogoPartite
+from .reset import DialogoReset
 from .run import GestoreRun, run_della_rom
 from .sincro import Sincro
 from .sprite import Sprite
@@ -37,19 +42,36 @@ class Pallino(QLabel):
         self.imposta(None)
 
     def imposta(self, ok, dettaglio=""):
-        col = OK if ok else (TENUE if ok is None else KO)
-        self.setText(f"<span style='color:{col}'>●</span> {self.testo}{(' · ' + dettaglio) if dettaglio else ''}")
+        col = OK if ok else ("#5b6075" if ok is None else KO)
+        det = f" <span style='color:#7c8199'>· {dettaglio}</span>" if dettaglio else ""
+        self.setText(f"<span style='color:{col};font-size:11pt'>●</span>&nbsp;<span style='color:#c9cbd6'>{self.testo}</span>{det}")
+
+
+_SOSTITUZIONI_OVERLAY = {"è": "e'", "é": "e'", "à": "a'", "ì": "i'", "ò": "o'", "ù": "u'", "È": "E'",
+                         "↔": "<->", "→": "->", "«": '"', "»": '"', "ª": "a", "…": "...", "·": "-",
+                         "–": "-", "—": "-", "’": "'", "★": "*", "✓": "v", "⚔": "", "📍": ""}
+
+
+def per_overlay(testo: str) -> str:
+    """Il testo disegnato da BizHawk sopra il gioco non ha gli accenti: si usa la grafia con l'apostrofo."""
+    testo = testo.replace("Pokémon", "Pokemon").replace("Pokédex", "Pokedex")
+    out = "".join(_SOSTITUZIONI_OVERLAY.get(c, c) for c in testo)
+    out = unicodedata.normalize("NFKD", out).encode("ascii", "ignore").decode("ascii")
+    return out
 
 
 class Finestra(QMainWindow):
     _avvia_richiesto = Signal()
     _randomizzato = Signal(int, object, str)
     _avviso = Signal(str, str)
+    _per_reset = Signal()
+    _per_cambio = Signal()
 
     def __init__(self):
         super().__init__()
         self.cfg = Config()
-        self.locale = StatoLocale()
+        self.stato_locale = StatoLocale()
+        self.locale = self.stato_locale.partita(self.cfg.get("codice"))
         self.sprite = Sprite()
         self.run_mgr = GestoreRun(self.cfg)
         self.emu = Emulatore()
@@ -64,7 +86,7 @@ class Finestra(QMainWindow):
         self._lock = threading.Lock()
         self._ultimo_stato = None
 
-        self.setWindowTitle(f"Soul Link Tracker {VERSIONE}")
+        self.setWindowTitle(f"Soul Link Tracker {VERSIONE}" + (f" — {self.cfg['codice']}" if self.cfg.get("codice") else ""))
         self.resize(1560, 920)
         self._costruisci()
         self._collega()
@@ -76,8 +98,8 @@ class Finestra(QMainWindow):
         radice.setObjectName("radice")
         self.setCentralWidget(radice)
         v = QVBoxLayout(radice)
-        v.setContentsMargins(10, 8, 10, 4)
-        v.setSpacing(8)
+        v.setContentsMargins(12, 12, 12, 12)
+        v.setSpacing(10)
 
         self.barra = BarraSuperiore()
         v.addWidget(self.barra)
@@ -93,12 +115,19 @@ class Finestra(QMainWindow):
         self.pile = QStackedLayout(self.area_gioco)
         pag = QWidget()
         pv = QVBoxLayout(pag)
+        pv.setSpacing(14)
         pv.addStretch()
+        pv.addWidget(logo(88), 0, Qt.AlignHCenter)
+        t = QLabel("Soul Link")
+        t.setStyleSheet("font-size: 18pt; font-weight: 700; color: #d9dbe6;")
+        t.setAlignment(Qt.AlignCenter)
+        pv.addWidget(t)
         self.segnaposto = QLabel("Avvio…")
         self.segnaposto.setAlignment(Qt.AlignCenter)
         self.segnaposto.setWordWrap(True)
-        self.segnaposto.setObjectName("tenue")
+        self.segnaposto.setObjectName("segnaposto")
         pv.addWidget(self.segnaposto)
+        pv.addSpacing(4)
         self.b_avvia_centro = QPushButton("Avvia il gioco")
         self.b_avvia_centro.setObjectName("primario")
         self.b_avvia_centro.clicked.connect(self._riavvia_gioco)
@@ -115,9 +144,9 @@ class Finestra(QMainWindow):
         destra.setMinimumWidth(500)
         dv = QVBoxLayout(destra)
         dv.setContentsMargins(0, 0, 0, 0)
-        dv.setSpacing(8)
+        dv.setSpacing(12)
         riga = QHBoxLayout()
-        riga.setSpacing(8)
+        riga.setSpacing(12)
         self.c_obiettivo = CartaObiettivo()
         self.c_luogo = CartaLuogo()
         riga.addWidget(self.c_obiettivo, 1)
@@ -134,40 +163,65 @@ class Finestra(QMainWindow):
         self.p_obiettivi = PannelloObiettivi(self._azione)
         self.p_cimitero = PannelloCimitero(self.sprite)
         self.p_diario = PannelloDiario()
+        self.p_stat = PannelloStatistiche(self.sprite)
         self.p_registro = QListWidget()
+        self.p_registro.setWordWrap(True)
+        self.p_registro.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.p_diag = PannelloDiagnostica()
+        sistema = QSplitter(Qt.Vertical)
+        sistema.addWidget(self.p_registro)
+        sistema.addWidget(self.p_diag)
+        sistema.setSizes([300, 300])
         for w, n in ((self.p_coppie, "Coppie"), (self.p_percorsi, "Percorsi"), (self.p_obiettivi, "Obiettivi"),
-                     (self.p_cimitero, "Cimitero"), (self.p_diario, "Diario"), (self.p_registro, "Registro"),
-                     (self.p_diag, "Diagnostica")):
+                     (self.p_cimitero, "Cimitero"), (self.p_stat, "Statistiche"), (self.p_diario, "Diario"),
+                     (sistema, "Sistema")):
             self.tabs.addTab(w, n)
         dv.addWidget(self.tabs, 1)
         split.addWidget(destra)
+        self.destra = destra
+        self.notifiche = Notifiche(destra)
+        destra.installEventFilter(self)
         split.setStretchFactor(0, 3)
         split.setStretchFactor(1, 2)
         split.setSizes([900, 640])
 
-        # ---- barra in basso
-        sb = QStatusBar()
-        sb.setSizeGripEnabled(False)
-        self.setStatusBar(sb)
+        # ---- barra dei comandi in basso
+        basso = QFrame()
+        basso.setObjectName("barraBasso")
+        basso.setFixedHeight(56)
+        hb = QHBoxLayout(basso)
+        hb.setContentsMargins(18, 8, 10, 8)
+        hb.setSpacing(8)
         self.i_gioco = Pallino("BizHawk")
         self.i_script = Pallino("Script")
         self.i_sito = Pallino("Supabase")
-        for w in (self.i_gioco, self.i_script, self.i_sito):
-            sb.addWidget(w)
+        for i, w in enumerate((self.i_gioco, self.i_script, self.i_sito)):
+            if i:
+                hb.addSpacing(10)
+            hb.addWidget(w)
+        hb.addSpacing(14)
+        sep = QFrame()
+        sep.setFixedSize(1, 22)
+        sep.setStyleSheet("background:#2f3344;")
+        hb.addWidget(sep, 0, Qt.AlignVCenter)
+        hb.addSpacing(14)
         self.l_stato = QLabel("")
         self.l_stato.setObjectName("tenue")
-        sb.addWidget(self.l_stato, 1)
+        self.l_stato.setMinimumWidth(80)
+        self.l_stato.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        hb.addWidget(self.l_stato, 1)
+        hb.addSpacing(12)
         self.b_nuova = QPushButton("Nuova run")
         self.b_nuova.setObjectName("primario")
         self.b_riavvia = QPushButton("Riavvia gioco")
-        self.b_partenza = QPushButton("Salvataggio di partenza ▾")
-        self.b_regole = QPushButton("Regole ▾")
-        self.b_console = QPushButton("Console Lua")
-        self.b_console.setCheckable(True)
+        self.b_partenza = QPushButton("Salvataggio di partenza")
+        self.b_regole = QPushButton("Regole")
+        self.b_altro = QPushButton("Altro")
         self.b_imp = QPushButton("Impostazioni")
-        for b in (self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_console, self.b_imp):
-            sb.addPermanentWidget(b)
+        for b in (self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_altro, self.b_imp):
+            hb.addWidget(b)
+        v.addWidget(basso)
+
         menu = QMenu(self)
         menu.addAction("Usa il salvataggio attuale come partenza…", self._imposta_partenza)
         menu.addAction("Cancella il salvataggio di partenza", self._cancella_partenza)
@@ -178,19 +232,27 @@ class Finestra(QMainWindow):
                      ("shiny", "Clausola shiny (gli shiny non contano)")):
             a = self.m_regole.addAction(t)
             a.setCheckable(True)
-            a.triggered.connect(lambda v, k=k: self._azione({"azione": "regole", "regole": {k: v}}))
+            a.triggered.connect(lambda val, k=k: self._azione({"azione": "regole", "regole": {k: val}}))
             self.a_regole[k] = a
         self.m_regole.addSeparator()
         self.m_regole.addAction("Fai contare il mio ultimo incontro ignorato…", self._conta_ignorato)
         self.a_lega = self.m_regole.addAction("Superquattro battuti (level cap di Iris)")
         self.a_lega.setCheckable(True)
-        self.a_lega.triggered.connect(lambda v: self._azione({"azione": "lega", "valore": v}))
+        self.a_lega.triggered.connect(lambda val: self._azione({"azione": "lega", "valore": val}))
         self.b_regole.setMenu(self.m_regole)
+        m_altro = QMenu(self)
+        self.a_console = m_altro.addAction("Mostra la console Lua di BizHawk")
+        self.a_console.setCheckable(True)
+        m_altro.addSeparator()
+        m_altro.addAction("Cambia partita…", self._cambia_partita)
+        m_altro.addSeparator()
+        m_altro.addAction("Reset totale…", self._reset_totale)
+        self.b_altro.setMenu(m_altro)
 
     def _collega(self):
         self.b_nuova.clicked.connect(self._nuova_run)
         self.b_riavvia.clicked.connect(self._riavvia_gioco)
-        self.b_console.toggled.connect(self.emu.mostra_console)
+        self.a_console.toggled.connect(self.emu.mostra_console)
         self.b_imp.clicked.connect(self._impostazioni)
         self.emu.finestra_pronta.connect(self._incastra)
         self.emu.terminato.connect(self._emu_terminato)
@@ -198,13 +260,18 @@ class Finestra(QMainWindow):
         self.ponte.collegato.connect(self._script_collegato)
         self.sincro.stato_server.connect(self._stato_server)
         self.sincro.connessione.connect(self._connessione)
-        self.sincro.messaggio.connect(lambda t: self._log(t, ORO))
+        if self.sincro.online:                  # collegato prima che il segnale fosse agganciato
+            self._connessione(True, "")
+        self.sincro.messaggio.connect(lambda t: (self._log(t, ORO), self.notifiche.mostra(t)))
         self.sincro.run_cambiata.connect(self._run_cambiata)
         self.sincro.ignorato.connect(lambda t: self._log("Dati non registrati: " + t, WARN))
         self.sprite.aggiornato.connect(self._sprite_pronti)
         self._avvia_richiesto.connect(self._dopo_arresto)
         self._randomizzato.connect(self._fine_randomizzazione)
         self._avviso.connect(self._log)
+        self._per_reset.connect(self._esegui_dopo_reset)
+        self._per_cambio.connect(self._applica_partita)
+        self.barra.cambia_partita.connect(self._cambia_partita)
         self.ospite.ridimensionato.connect(self._adatta)
         self._t_adatta = QTimer(self)
         self._t_adatta.timeout.connect(self._adatta)
@@ -218,7 +285,9 @@ class Finestra(QMainWindow):
         manca = self.cfg.mancanti()
         if manca:
             if Impostazioni(self.cfg, self, manca).exec():
+                self.locale = self.stato_locale.partita(self.cfg.get("codice"))
                 self.sincro.riconfigura()
+        self.barra.imposta_partita(self.cfg.get("codice"))
         self._aggiorna_locale()
         self._log(f"Ponte per BizHawk in ascolto sulla porta {self.ponte.porta}")
         if self.cfg.mancanti():
@@ -236,6 +305,8 @@ class Finestra(QMainWindow):
             self._log("Supabase: " + err, KO)
 
     def _run_cambiata(self, run, stato):
+        if self.sincro.edizione is not None and self.sincro.edizione != self.locale.get("ultima_edizione") and self.locale.get("ultima_edizione") is not None:
+            self._log("La partita è stata azzerata: si riparte con ROM nuove", WARN)
         prima = self.run_desiderata
         self.run_desiderata, self.stato_run = run, stato
         if run != prima:
@@ -247,15 +318,21 @@ class Finestra(QMainWindow):
         if self._occupato or self.cfg.mancanti():
             return
         run = self.run_desiderata
-        rom = self.run_mgr.rom_per_run(run)
+        if self.sincro.edizione is None and not self.locale.get("ultima_edizione"):
+            self.segnaposto.setText("Carico i dati della partita…")
+            self.pile.setCurrentIndex(0)
+            return                        # arriveranno con il primo stato da Supabase (run_cambiata)
+        rom = self.rom_attesa()
         if self.cfg["randomizza"] and not rom.exists():
             self._occupato = True
             self._stato(f"Genero la ROM randomizzata della run #{run}…")
             self.segnaposto.setText(f"Genero la ROM randomizzata della run #{run}…\nCi vuole qualche secondo.")
             self.pile.setCurrentIndex(0)
 
+            ed = self.edizione()
+
             def lavoro():
-                out, msg = self.run_mgr.randomizza(run)
+                out, msg = self.run_mgr.randomizza(run, ed)
                 self._randomizzato.emit(run, out, msg)
             threading.Thread(target=lavoro, daemon=True).start()
             return
@@ -268,6 +345,14 @@ class Finestra(QMainWindow):
             self.emu.ferma(alla_fine=self._avvia_richiesto.emit)
             return
         self._avvia(rom, run)
+
+    def edizione(self) -> str:
+        if self.sincro.edizione is not None:
+            return self.sincro.edizione
+        return self.locale.get("ultima_edizione", "")
+
+    def rom_attesa(self) -> Path:
+        return self.run_mgr.rom_per_run(self.run_desiderata, self.edizione())
 
     def _fine_randomizzazione(self, run, out, msg):
         self._occupato = False
@@ -301,7 +386,11 @@ class Finestra(QMainWindow):
             self.segnaposto.setText("Avvio BizHawk…")
             self.b_avvia_centro.hide()
             self.i_gioco.imposta(True, "avvio")
-            self.locale.update(ultima_run=run)
+            ed = self.edizione()
+            viste = self.locale.get("edizioni", [])
+            if ed and ed not in viste:
+                viste = viste + [ed]
+            self.locale.update(ultima_run=run, ultima_edizione=ed, edizioni=viste, ultimo_accesso=time.time())
             self.locale.salva()
         else:
             self.b_avvia_centro.setText("Riprova")
@@ -363,14 +452,19 @@ class Finestra(QMainWindow):
                     self._avvisi_lua.append(m)
                 QTimer.singleShot(0, self._aggiorna_locale)
         rom = self.emu.rom
-        dati["run_rom"] = run_della_rom(rom) if (self.cfg["randomizza"] and rom) else None
+        if not self.cfg["randomizza"]:
+            dati["run_rom"] = None
+        elif rom and self.sincro.run is not None:
+            dati["run_rom"] = self.sincro.run if Path(rom) == self.rom_attesa() else -1   # ROM di un'altra run/edizione
+        else:
+            dati["run_rom"] = run_della_rom(rom) if rom else -1
         self.sincro.accoda(dati)
         righe = ["OK"]
         if self.sincro.run is not None:
             righe.append(f"RUN {self.sincro.run} {self.sincro.stato or 'in_corso'}")
-        righe += self.sincro.messaggi_per_lua()
+        righe += [per_overlay(r) for r in self.sincro.messaggi_per_lua()]
         with self._lock:
-            righe += [f"AVVISO {a}" for a in self._avvisi_lua]
+            righe += [f"AVVISO {per_overlay(a)}" for a in self._avvisi_lua]
             righe += self._comandi_lua
             self._avvisi_lua.clear()
             self._comandi_lua.clear()
@@ -386,6 +480,12 @@ class Finestra(QMainWindow):
     # ================================================================ stato condiviso
     def _stato_server(self, st):
         self._ultimo_stato = st
+        G = st["giocatori"]
+        rias = {"run": st["run"], "stato": st["stato"],
+                "giocatori": {g: G[g].get("medaglie") or 0 for g in sorted(G, key=lambda g: (G[g].get("entrato") or 0, g))}}
+        if self.locale.get("riassunto") != rias:          # per la finestra di scelta della partita, anche senza rete
+            self.locale["riassunto"] = rias
+            self.locale.salva()
         self.stato_run = st["stato"]
         io = self.cfg["giocatore"]
         self.barra.aggiorna(st, io)
@@ -393,7 +493,11 @@ class Finestra(QMainWindow):
         self.c_obiettivo.aggiorna(st, io)
         self.c_luogo.aggiorna(st, io)
         if st["avvisi"]:
-            self.l_avvisi.setText("⚠  " + "\n⚠  ".join(st["avvisi"]))
+            righe = [f"⚠&nbsp;&nbsp;{html.escape(a)}" for a in st["avvisi"][:3]]
+            if len(st["avvisi"]) > 3:
+                righe.append(f"<span style='color:#b8955a'>… e altri {len(st['avvisi']) - 3}: passa qui sopra col mouse per vederli</span>")
+            self.l_avvisi.setText(paragrafi(righe, 5))
+            self.l_avvisi.setToolTip("\n".join(st["avvisi"]))
             self.l_avvisi.show()
         else:
             self.l_avvisi.hide()
@@ -401,7 +505,7 @@ class Finestra(QMainWindow):
             a.setChecked(st["regole"].get(k, True) is not False)
         self.a_lega.setChecked(bool(st.get("lega")))
         self.p_coppie.aggiorna(st, io)
-        for p in (self.p_percorsi, self.p_obiettivi, self.p_cimitero, self.p_diario):
+        for p in (self.p_percorsi, self.p_obiettivi, self.p_cimitero, self.p_diario, self.p_stat):
             p.aggiorna(st)
         self.p_diag.aggiorna(st)
         chiave = (st["run"], st["stato"])
@@ -471,13 +575,110 @@ class Finestra(QMainWindow):
             self._log("Salvataggio di partenza cancellato")
             self._aggiorna_locale()
 
+    def _reset_totale(self):
+        n = len((self._ultimo_stato or {}).get("giocatori", {}))
+        d = DialogoReset(self, n)
+        if not d.exec():
+            return
+        condivisa, locale, partenza = d.condivisa.isChecked(), d.locale.isChecked(), d.partenza.isChecked()
+        self._log("Reset in corso…", WARN)
+
+        def dopo_arresto():
+            if locale or partenza:
+                via = self.run_mgr.cancella_tutto(anche_partenza=partenza, edizioni=self.locale.get("edizioni", [])) if locale else []
+                if partenza and not locale and self.run_mgr.file_base.exists():
+                    self.run_mgr.file_base.unlink()
+                    via.append(self.run_mgr.file_base)
+                self._log(f"Cancellati {len(via)} file (ROM, salvataggi e stati di BizHawk)", OK)
+            self.locale.update(ultima_run=1)
+            self.locale.salva()
+            self._aggiorna_locale()
+            if condivisa:
+                def fine(r):
+                    self._avviso.emit("Partita azzerata: si riparte dalla run #1" if not r.get("errore") else "Errore: " + r["errore"],
+                                      OK if not r.get("errore") else KO)
+                    self._avvia_richiesto.emit()
+                self.sincro.azione({"azione": "reset_partita", "giocatore": self.cfg["giocatore"]}, fine)
+            else:
+                self._avvia_richiesto.emit()
+
+        self._occupato = True
+        self._dopo_reset = dopo_arresto          # prima di chiedere la chiusura: BizHawk può chiudersi in fretta
+        if self.emu.in_esecuzione:
+            self.emu.ferma(alla_fine=self._per_reset.emit)
+        else:
+            dopo_arresto()
+
+    def _esegui_dopo_reset(self):
+        f, self._dopo_reset = getattr(self, "_dopo_reset", None), None
+        if f:
+            f()
+
     def _impostazioni(self):
+        prima = self.cfg.get("codice")
         if Impostazioni(self.cfg, self).exec():
             self._log("Impostazioni salvate")
+            if self.cfg.get("codice") != prima and self.cfg.get("codice"):
+                nuovo = self.cfg["codice"]
+                self.cfg["codice"] = prima
+                self._passa_a_partita(nuovo)
+                return
             self.sincro.riconfigura()
             self._aggiorna_locale()
             if not self.emu.in_esecuzione:
                 self.assicura_gioco()
+
+    # ================================================================ partite
+    def _cambia_partita(self):
+        if self.cfg.mancanti() and not self.cfg.get("supabase_url"):
+            self._impostazioni()
+            return
+        attuale = self.cfg.get("codice")
+        d = DialogoPartite(self.cfg, self.stato_locale, self, attuale=attuale or None, obbligatorio=False)
+        ok = d.exec()
+        self.cfg.salva()                                  # preferenza "chiedi all'avvio"
+        if ok and d.codice and d.codice != attuale:
+            self._passa_a_partita(d.codice)
+
+    def _passa_a_partita(self, codice):
+        self._partita_nuova = codice
+        if self.emu.in_esecuzione:
+            if QMessageBox.question(self, "Cambia partita",
+                                    f"Passo alla partita «{codice}»: BizHawk verrà chiuso.\n\n"
+                                    "Hai salvato in gioco? I progressi non salvati andranno persi.") != QMessageBox.Yes:
+                return
+            self._occupato = True
+            self._stato("Chiudo BizHawk per cambiare partita…")
+            self.emu.ferma(alla_fine=self._per_cambio.emit)
+        else:
+            self._applica_partita()
+
+    def _applica_partita(self):
+        codice = self._partita_nuova
+        self.cfg["codice"] = codice
+        self.cfg.salva()
+        self.locale = self.stato_locale.partita(codice)
+        self.locale["ultimo_accesso"] = time.time()
+        self.locale.salva()
+        self.sincro.cambia_partita()
+        self.run_desiderata = self.locale.get("ultima_run", 1)
+        self.stato_run = None
+        self._popup_visto = None
+        self._ultimo_stato = None
+        with self._lock:
+            self._avvisi_lua.clear()
+            self._comandi_lua.clear()
+        for p in (self.p_coppie, self.p_percorsi, self.p_obiettivi, self.p_cimitero, self.p_diario, self.p_stat):
+            if hasattr(p, "forza"):
+                p.forza()
+        self.barra.imposta_partita(codice)
+        self.setWindowTitle(f"Soul Link Tracker {VERSIONE} — {codice}")
+        self.pile.setCurrentIndex(0)
+        self.segnaposto.setText(f"Carico la partita «{codice}»…")
+        self._occupato = False
+        self._log(f"Partita «{codice}»", OK)
+        self._aggiorna_locale()
+        QTimer.singleShot(2500, self.assicura_gioco)
 
     # ================================================================ varie
     def _log(self, testo, colore=None):
@@ -490,16 +691,22 @@ class Finestra(QMainWindow):
         self._stato(testo)
 
     def _stato(self, testo):
-        self.l_stato.setText(testo[:140])
+        self.l_stato.setText(testo[:160])
+        self.l_stato.setToolTip(testo)
 
     def _aggiorna_locale(self):
         self.p_diag.locale = {
-            "versione app": VERSIONE, "porta ponte": self.ponte.porta, "BizHawk": self.cfg["bizhawk"],
+            "versione app": VERSIONE, "partita": self.cfg.get("codice") or "-", "porta ponte": self.ponte.porta, "BizHawk": self.cfg["bizhawk"],
             "ROM in uso": str(self.emu.rom) if self.emu.rom else "-",
             "cartella ROM": str(self.run_mgr.cartella_rom), "salvataggi BizHawk": str(self.run_mgr.cartella_saveram()),
             "salvataggio di partenza": "presente" if self.run_mgr.file_base.exists() else "non ancora creato",
             "dati scaricati da Supabase": f"{self.sincro.archivio.byte_scaricati // 1024} KB",
         }
+
+    def eventFilter(self, ogg, ev):
+        if ogg is self.destra and ev.type() == ev.Type.Resize:
+            self.notifiche.riposiziona()
+        return super().eventFilter(ogg, ev)
 
     def closeEvent(self, ev):
         if self.emu.in_esecuzione:

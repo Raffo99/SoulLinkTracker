@@ -511,12 +511,16 @@ local function aggiorna_lotta(fc)
   local nem = A.nemico and leggi_pkm(A.nemico, true) or nil
   local pid = nem and nem.pid or 0
   if ultimo_pid_nemico == nil then ultimo_pid_nemico = pid; return end
+  -- i PS del nemico che cambiano dicono che la lotta e' ancora in corso (serve senza indicatore calibrato)
+  if lotta.attiva and nem and pid == ultimo_pid_nemico and nem.ps ~= lotta.ps then
+    lotta.ps, lotta.ps_max, lotta.vivo = nem.ps, nem.ps_max, fc
+  end
 
   -- NUOVA LOTTA: compare in memoria un Pokemon nemico mai visto
   if nem and pid ~= ultimo_pid_nemico then
     ultimo_pid_nemico = pid
     if lotta.attiva or lotta.finita then fine_lotta() end
-    lotta = { attiva = true, inizio = fc, nemico = nem, letto = false }
+    lotta = { attiva = true, inizio = fc, nemico = nem, letto = false, ps = nem.ps, ps_max = nem.ps_max, vivo = fc }
     calibra_in_lotta()
     if controllo_cattura then                                   -- la lotta prima e' sicuramente finita
       local c = controllo_cattura
@@ -587,8 +591,30 @@ local function gestisci_rom()
   end
 end
 
+-- cosa sta facendo il giocatore, per la barra in alto dell'app (anche degli altri giocatori)
+local function attivita_attuale(fc)
+  if not lotta.attiva or not lotta.nemico then return { lotta = false } end
+  -- senza indicatore calibrato la fine della lotta si vede solo cambiando zona: dopo 90 s senza
+  -- movimenti dei PS del nemico la consideriamo finita (solo per la visualizzazione)
+  if not cal_lotta.addr and fc - (lotta.vivo or lotta.inizio) > 60 * 90 then return { lotta = false } end
+  local a = { lotta = true, specie = lotta.nemico.specie, livello = lotta.nemico.livello, ps = lotta.ps, ps_max = lotta.ps_max }
+  if lotta.letto then a.allenatore = lotta.allenatore or 0 end
+  return a
+end
+local function firma_attivita(a)
+  if not a.lotta then return "-" end
+  return tostring(a.specie) .. ":" .. tostring(a.allenatore) .. ":" .. tostring(a.ps)
+end
+local ultima_attivita = nil
+
 -- ---------------- disegno ----------------
+local schermo_pulito = false
 local function disegna(fc)
+  -- con l'app tutto si vede nella finestra dell'app: niente scritte sopra il gioco
+  if APP then
+    if not schermo_pulito then pcall(gui.clearGraphics); schermo_pulito = true end
+    return
+  end
   local y = 2
   local stato
   if APP then stato = stato_rete.ok and ("Soul Link: collegato all'app" .. (stato_rete.run and (" - run #" .. stato_rete.run) or "")) or "Soul Link: app non raggiungibile"
@@ -597,8 +623,8 @@ local function disegna(fc)
   elseif stato_rete.ok then stato = "Soul Link: online" .. (stato_rete.run and (" - run #" .. stato_rete.run) or "")
   else stato = "Soul Link: server non raggiungibile" end
   gui.text(2, y, stato, stato_rete.ok and "lime" or "yellow"); y = y + 16
-  if stato_rete.ignorato then gui.text(2, y, "Dati non registrati: " .. stato_rete.ignorato, "orange"); y = y + 16 end
-  if stato_rete.stato == "game_over" then gui.text(2, y, "GAME OVER - nuova run dalla dashboard", "red"); y = y + 16 end
+  if stato_rete.ignorato then gui.text(2, y, "Dati ignorati: " .. stato_rete.ignorato, "orange"); y = y + 16 end
+  if stato_rete.stato == "game_over" then gui.text(2, y, "GAME OVER - avvia la nuova run dall'app", "red"); y = y + 16 end
   if stato_rete.stato == "vinta" then gui.text(2, y, "RUN VINTA! Complimenti!", "gold"); y = y + 16 end
   if CFG.diagnostica then
     for _, riga in ipairs({
@@ -666,7 +692,10 @@ while true do
       elseif run_rom == nil then run_rom = -1 end      -- ROM non del Soul Link: i dati non contano
 
       local fb = box_ok and firma_box(box) or nil
+      local att = attivita_attuale(fc)
+      local fa = firma_attivita(att)
       local da_mandare = (#coda > 0) or (squadra and fs ~= ultima_firma) or (fb and fb ~= ultima_firma_box)
+                         or (APP and fa ~= ultima_attivita)
       if da_mandare and not pendente_da then pendente_da = fc elseif not da_mandare then pendente_da = nil end
       -- le richieste bloccano l'emulatore per un attimo: le facciamo quando non stai premendo tasti
       -- con l'app la richiesta e' locale e istantanea: niente attese
@@ -675,7 +704,8 @@ while true do
       local urgente = pendente_da and fc - pendente_da >= 60 * (CFG.attesa_massima or 20)
       if (da_mandare and (fermo or urgente) and fc - ultimo_invio >= (APP and 30 or 60)) or (tocca_poll and fermo)
          or fc - ultimo_invio >= 60 * 60 then
-        local dati = { attivo = true, run_rom = run_rom, medaglie = diag.medaglie, zona = diag.zona }
+        local dati = { attivo = true, run_rom = run_rom, medaglie = diag.medaglie, zona = diag.zona, attivita = att }
+        ultima_attivita = fa
         if squadra and fs ~= ultima_firma then dati.squadra = squadra end
         if fb and fb ~= ultima_firma_box then dati.squadra = squadra; dati.box = box; dati.box_ok = true end
         if #coda > 0 then dati.eventi = coda end

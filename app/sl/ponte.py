@@ -1,7 +1,7 @@
 """Ponte locale con BizHawk.
 
 BizHawk, avviato con --socket_ip/--socket_port, si collega a questo server TCP.
-Protocollo (BizHawk >= 2.6.2): ogni messaggio e' "<lunghezza in byte> <testo UTF-8>" in tutti e due i versi.
+Protocollo (BizHawk >= 2.6.2): ogni messaggio è "<lunghezza in byte> <testo UTF-8>" in tutti e due i versi.
 Lo script manda un messaggio, l'app risponde subito: sul PC lo scambio dura meno di un millisecondo.
 """
 import json

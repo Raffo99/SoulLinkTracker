@@ -1,7 +1,7 @@
 """Archivio della partita su Supabase (API REST di PostgREST).
 
 - una riga per partita in `soullink_partite` (id = codice segreto, mandato nell'header x-partita)
-- scritture "ottimistiche": si aggiorna solo se la versione e' ancora quella letta, altrimenti si rilegge e si riprova
+- scritture "ottimistiche": si aggiorna solo se la versione è ancora quella letta, altrimenti si rilegge e si riprova
 - per sapere se l'altro ha cambiato qualcosa si legge solo il numero di versione (pochi byte)
 - la presenza (online, zona, diagnostica) sta in una tabella a parte: non fa riscaricare la partita
 """
@@ -90,6 +90,26 @@ class Archivio:
         self.cache = (r[0]["stato"], r[0]["versione"])
         return self.cache
 
+    def riassunto(self) -> dict | None:
+        """Poche informazioni sulla partita (per la finestra di scelta), senza scaricare tutto lo stato."""
+        r = self._req("GET", "soullink_partite", self._q(
+            id=f"eq.{self.partita}",
+            select="aggiornato,run:stato->run,stato_run:stato->>stato,giocatori:stato->giocatori,storico:stato->storico,iniziata:stato->iniziata"))
+        if not r:
+            return None
+        x = r[0]
+        try:
+            x["aggiornato_t"] = datetime.fromisoformat(str(x.get("aggiornato")).replace("Z", "+00:00")).timestamp()
+        except Exception:
+            x["aggiornato_t"] = None
+        x["run_finite"] = len(x.pop("storico", None) or [])
+        try:
+            ora = time.time()
+            x["online"] = sorted(g for g, p in self.presenze().items() if ora - p["visto"] < 40)
+        except ErroreArchivio:
+            x["online"] = []
+        return x
+
     def _salva(self, stato, versione) -> bool:
         r = self._req("PATCH", "soullink_partite", self._q(id=f"eq.{self.partita}", versione=f"eq.{versione}", select="versione"),
                       {"stato": stato, "versione": versione + 1, "aggiornato": datetime.now(timezone.utc).isoformat()},
@@ -114,7 +134,7 @@ class Archivio:
         raise ErroreArchivio("troppi aggiornamenti contemporanei")
 
     def aggiorna_se_cambiata(self, crea) -> bool:
-        """Scarica la partita solo se la versione online e' diversa da quella che abbiamo."""
+        """Scarica la partita solo se la versione online è diversa da quella che abbiamo."""
         v = self.versione()
         if v is None:
             self.carica(crea)

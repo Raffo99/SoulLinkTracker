@@ -84,7 +84,7 @@ def sgancia(hwnd):
 
 def prepara_config_bizhawk(exe: Path) -> Path:
     """Copia la configurazione di BizHawk in un file solo per il Soul Link e attiva le opzioni necessarie
-    quando la finestra e' incastrata nell'app: input anche senza 'focus' e niente pausa in background."""
+    quando la finestra è incastrata nell'app: input anche senza 'focus' e niente pausa in background."""
     dest = cartella_app() / "bizhawk_soullink.ini"
     dati = {}
     sorgenti = [dest, exe.parent / "config.ini"]

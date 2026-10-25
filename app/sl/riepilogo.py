@@ -1,11 +1,53 @@
 """Parti principali della nuova interfaccia: barra in alto, obiettivo, luogo attuale, coppie, ospite del gioco."""
+import sys
 import time
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QScrollArea,
-                               QSizePolicy, QVBoxLayout, QWidget)
+from PySide6.QtGui import QColor, QIcon, QPixmap
+from PySide6.QtWidgets import (QFrame, QGraphicsDropShadowEffect, QGridLayout, QHBoxLayout, QLabel, QProgressBar,
+                               QPushButton, QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
-from .stile import ACC, COLORI_TIPI, KO, OK, ORO, TENUE, WARN, alfa
+from .stile import ACC, COLORI_GIOCATORI, COLORI_TIPI, KO, OK, ORO, SPENTO, TENUE, TESTO, WARN, alfa, colori_giocatori
+
+
+def logo(lato):
+    """Il logo dell'app (i due anelli) come immagine."""
+    base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
+    l = QLabel()
+    l.setFixedSize(lato, lato)
+    png = base / "risorse" / "icona.png"
+    if png.exists():
+        pm = QPixmap(str(png)).scaled(lato * 2, lato * 2, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        pm.setDevicePixelRatio(2)
+        l.setPixmap(pm)
+    else:
+        l.setPixmap(QIcon(str(base / "risorse" / "icona.ico")).pixmap(lato, lato))
+    return l
+
+
+def ombra(w, raggio=24, alfa_=140, dy=6):
+    e = QGraphicsDropShadowEffect(w)
+    e.setBlurRadius(raggio)
+    e.setOffset(0, dy)
+    e.setColor(QColor(0, 0, 0, alfa_))
+    w.setGraphicsEffect(e)
+
+
+class Avatar(QLabel):
+    """Cerchio con l'iniziale del giocatore, nel suo colore."""
+
+    def __init__(self, lato=30):
+        super().__init__()
+        self.lato = lato
+        self.setFixedSize(lato, lato)
+        self.setAlignment(Qt.AlignCenter)
+
+    def imposta(self, nome_g, colore, attivo=True):
+        self.setText((nome_g or "?")[:1].upper())
+        c2 = colore if attivo else SPENTO
+        self.setStyleSheet(f"background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 {c2}, stop:1 {alfa(c2, 0.55)});"
+                           f"border-radius: {self.lato // 2}px; color: white; font-weight: 700; font-size: {max(8, self.lato // 3)}pt;")
 
 
 def nome(p):
@@ -20,6 +62,11 @@ def etichetta(testo="", ogg=None, stile=None, a_capo=False):
         l.setStyleSheet(stile)
     l.setWordWrap(a_capo)
     return l
+
+
+def paragrafi(righe, spazio=6):
+    """Righe di testo ricco ben distanziate (con <br> sarebbero tutte attaccate)."""
+    return "".join(f"<p style='margin:0 0 {spazio}px 0'>{r}</p>" for r in righe)
 
 
 def durata(sec):
@@ -40,72 +87,182 @@ def pulisci(layout):
 
 # ----------------------------------------------------------------------------------------------
 class Medaglie(QWidget):
-    def __init__(self):
+    def __init__(self, lato=10):
         super().__init__()
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(3)
+        h.setSpacing(2 if lato < 8 else 3)
+        self.lato = lato
         self.punti = []
         for _ in range(8):
             l = QLabel()
-            l.setFixedSize(9, 9)
+            l.setFixedSize(lato, lato)
             h.addWidget(l)
             self.punti.append(l)
         self.imposta(0)
 
     def imposta(self, n):
         for i, l in enumerate(self.punti):
-            col = ORO if i < n else "#343849"
-            l.setStyleSheet(f"background:{col};border-radius:4px;")
+            if i < n:
+                sfondo = "qradialgradient(cx:0.35, cy:0.3, radius:0.8, fx:0.35, fy:0.3, stop:0 #fff3c4, stop:0.5 #ffd166, stop:1 #d99a1e)"
+            else:
+                sfondo = "rgba(255,255,255,0.09)"
+            l.setStyleSheet(f"background:{sfondo};border-radius:{self.lato // 2}px;")
+        self.setToolTip(f"{n} medaglie su 8")
+
+
+def pill(testo, colore):
+    """Etichetta colorata dentro un testo ricco (QLabel non ha il padding sugli span: si usano spazi fissi)."""
+    return (f"<span style='background:{alfa(colore, 0.18)};color:{colore};font-size:8pt;font-weight:700;'>"
+            f"&nbsp;{testo}&nbsp;</span>")
+
+
+def stato_giocatore(x):
+    """(etichetta, colore, descrizione) di cosa sta facendo un giocatore adesso."""
+    if not x.get("online"):
+        return "OFFLINE", TENUE, "non connesso"
+    if not x.get("emulatore"):
+        return "IN ATTESA", TENUE, "gioco chiuso"
+    a = x.get("attivita") or {}
+    if a.get("lotta"):
+        sp = a.get("nome_specie") or "?"
+        lv = f" Lv.{a['livello']}" if a.get("livello") else ""
+        all_ = a.get("allenatore")
+        if a.get("nome_allenatore"):
+            return "BOSS", KO, f"contro <b>{a['nome_allenatore']}</b>"
+        if all_ == 0:
+            return "SELVATICO", WARN, f"<b>{sp}</b>{lv}"
+        if all_:
+            return "ALLENATORE", WARN, f"<b>{sp}</b>{lv}"
+        return "IN LOTTA", WARN, f"<b>{sp}</b>{lv}"
+    if x.get("zona_nome"):
+        return "IN GIRO", OK, x["zona_nome"]
+    return "IN GIOCO", OK, "schermata iniziale"
 
 
 class CartaGiocatore(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("giocatore")
+        self.setMinimumWidth(190)
+        self.setMaximumWidth(340)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        # avatar a sinistra accanto a nome e stato; la barra dei PS sotto, su tutta la larghezza
         g = QGridLayout(self)
-        g.setContentsMargins(12, 6, 12, 6)
+        g.setContentsMargins(12, 9, 12, 9)
         g.setHorizontalSpacing(10)
-        g.setVerticalSpacing(2)
+        g.setVerticalSpacing(4)
+        self.avatar = Avatar(30)
+        g.addWidget(self.avatar, 0, 0, 2, 1, Qt.AlignVCenter)
+        r1 = QHBoxLayout()
+        r1.setSpacing(8)
         self.l_nome = etichetta("")
-        self.medaglie = Medaglie()
-        self.l_info = etichetta("", "tenue")
-        g.addWidget(self.l_nome, 0, 0)
-        g.addWidget(self.medaglie, 0, 1, Qt.AlignRight)
-        g.addWidget(self.l_info, 1, 0, 1, 2)
+        self.l_nome.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.l_nome.setMinimumHeight(18)
+        self.medaglie = Medaglie(7)
+        r1.addWidget(self.l_nome, 1)
+        r1.addWidget(self.medaglie, 0, Qt.AlignVCenter)
+        g.addLayout(r1, 0, 1)
+        self.l_stato = etichetta("")
+        self.l_stato.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # un testo lungo non allarga la carta
+        self.l_stato.setMinimumHeight(19)
+        g.addWidget(self.l_stato, 1, 1)
+        r3 = QHBoxLayout()
+        r3.setSpacing(10)
+        r3.setContentsMargins(0, 4, 0, 0)
+        self.ps = QProgressBar()
+        self.ps.setTextVisible(False)
+        self.ps.setFixedHeight(5)
+        self.l_lv = etichetta("", "piccolo")
+        r3.addWidget(self.ps, 1, Qt.AlignVCenter)
+        r3.addWidget(self.l_lv, 0, Qt.AlignVCenter)
+        g.addLayout(r3, 2, 0, 1, 2)
+        g.setColumnStretch(1, 1)
 
-    def imposta(self, g, x, io=False):
-        col = OK if x.get("online") else TENUE
-        tu = " <span style='color:%s;font-size:8pt'>(tu)</span>" % TENUE if io else ""
-        self.l_nome.setText(f"<span style='color:{col}'>●</span> <b>{g}</b>{tu}")
+    def imposta(self, g, x, squadra, io=False, colore=ACC):
+        online = bool(x.get("online"))
+        self.avatar.imposta(g, colore, online)
+        self.l_nome.setText(f"<b style='font-size:10.5pt;color:{TESTO if online else TENUE}'>{g}</b>")
+        self.l_nome.setToolTip("sei tu" if io else "")
         self.medaglie.imposta(x.get("medaglie") or 0)
-        dove = x.get("zona_nome") or ("in gioco" if x.get("emulatore") else "offline" if not x.get("online") else "senza partita")
-        self.l_info.setText(f"{dove} · cap <b style='color:{WARN}'>{x.get('cap', '?')}</b>")
+        et, c, testo = stato_giocatore(x)
+        self.l_stato.setText(f"{pill(et, c)}&nbsp;&nbsp;{testo}")
+        in_lotta = bool((x.get("attivita") or {}).get("lotta") and x.get("online") and x.get("emulatore"))
+        boss = in_lotta and et == "BOSS"
+        if self.property("lotta") != (in_lotta and not boss) or self.property("boss") != boss:
+            self.setProperty("lotta", in_lotta and not boss)
+            self.setProperty("boss", boss)
+            self.style().unpolish(self)
+            self.style().polish(self)
+        tot = sum(p.get("ps_max") or 0 for p in squadra)
+        ora = sum(min(p.get("ps") or 0, p.get("ps_max") or 0) for p in squadra)
+        self.ps.setRange(0, max(1, tot))
+        self.ps.setValue(ora if tot else 0)
+        perc = ora / tot if tot else 0
+        cb = OK if perc > 0.5 else WARN if perc > 0.2 else KO
+        self.ps.setStyleSheet(f"QProgressBar::chunk{{background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(cb, 0.7)}, stop:1 {cb});}}")
+        lv = max((p.get("livello") or 0 for p in squadra), default=0)
+        cap = x.get("cap", "?")
+        sopra = isinstance(cap, int) and lv > cap
+        self.l_lv.setText(f"Lv <b style='color:{KO if sopra else TESTO}'>{lv or '–'}</b>"
+                          f" <span style='color:#5b5f73'>·</span> cap <b style='color:{WARN}'>{cap}</b>")
+        self.ps.setToolTip(f"PS della squadra: {ora}/{tot}" if tot else "nessun Pokémon in squadra")
+        righe = [f"<b>{g}</b> · {x.get('medaglie') or 0} medaglie · level cap {cap} · {len(squadra)} in squadra",
+                 f"{et.capitalize()}: {testo}"]
+        a = x.get("attivita") or {}
+        if in_lotta and a.get("ps_max"):
+            righe[-1] += f" · PS del nemico {round(100 * (a.get('ps') or 0) / a['ps_max'])}%"
+        righe.append("")
+        for p in squadra:
+            righe.append(f"{nome(p)} Lv.{p.get('livello') or '?'} — PS {p.get('ps') or 0}/{p.get('ps_max') or '?'}")
+        if not squadra:
+            righe.append("nessun Pokémon in squadra")
+        self.setToolTip("<br>".join(righe))
 
 
 class BarraSuperiore(QFrame):
+    cambia_partita = Signal()
+
     def __init__(self):
         super().__init__()
         self.setObjectName("barra")
-        self.setFixedHeight(66)
+        self.setFixedHeight(104)
         h = QHBoxLayout(self)
-        h.setContentsMargins(14, 6, 10, 6)
-        h.setSpacing(14)
-        h.addWidget(etichetta(f"Soul Link <span style='color:{ACC}'>Tracker</span>", "titolo"))
+        h.setContentsMargins(20, 9, 12, 9)
+        h.setSpacing(10)
+        h.addWidget(logo(44), 0, Qt.AlignVCenter)
+        h.addSpacing(6)
+        sx = QVBoxLayout()
+        sx.setSpacing(7)
+        sx.addStretch()
+        r0 = QHBoxLayout()
+        r0.setSpacing(12)
+        r0.addWidget(etichetta(f"Soul Link <span style='color:#b6a4ff;font-weight:600'>Tracker</span>", "titolo"))
+        self.b_partita = QPushButton("partita")
+        self.b_partita.setObjectName("partita")
+        self.b_partita.setCursor(Qt.PointingHandCursor)
+        self.b_partita.setToolTip("Codice della partita in corso: clicca per giocarne un'altra o crearne una nuova")
+        self.b_partita.clicked.connect(self.cambia_partita.emit)
+        r0.addWidget(self.b_partita, 0, Qt.AlignVCenter)
+        r0.addStretch()
+        sx.addLayout(r0)
+        riga = QHBoxLayout()
+        riga.setSpacing(12)
         self.l_run = etichetta("Run #–", "pill")
-        h.addWidget(self.l_run, 0, Qt.AlignVCenter)
+        riga.addWidget(self.l_run, 0, Qt.AlignVCenter)
         self.l_tempo = etichetta("0:00:00", "numero")
         self.l_tempo.setToolTip("Durata della run")
-        h.addWidget(self.l_tempo, 0, Qt.AlignVCenter)
-        self.chips = {}
-        for k, t in (("catture", "catture"), ("coppie", "coppie vive"), ("morti", "morti")):
-            l = etichetta("", "chip")
-            self.chips[k] = (l, t)
-            h.addWidget(l, 0, Qt.AlignVCenter)
-        h.addStretch()
-        self.carte = [CartaGiocatore(), CartaGiocatore()]
+        riga.addWidget(self.l_tempo, 0, Qt.AlignVCenter)
+        self.l_conti = etichetta("")
+        riga.addWidget(self.l_conti, 0, Qt.AlignVCenter)
+        riga.addStretch()
+        sx.addLayout(riga)
+        sx.addStretch()
+        h.addLayout(sx)
+        h.addSpacing(24)
+        self.carte = [CartaGiocatore() for _ in range(4)]
         for c in self.carte:
-            h.addWidget(c)
+            h.addWidget(c, 2)
             c.hide()
         self.inizio = None
         self.fermo = False
@@ -115,25 +272,32 @@ class BarraSuperiore(QFrame):
         col = KO if stato == "game_over" else ORO if stato == "vinta" else OK
         testo = {"in_corso": "in corso", "game_over": "GAME OVER", "vinta": "VINTA!"}.get(stato, stato)
         self.l_run.setText(f"Run #{st['run']} · {testo}")
-        self.l_run.setStyleSheet(f"background:{alfa(col, 0.14)};color:{col};")
+        self.l_run.setStyleSheet(f"background:{alfa(col, 0.14)};color:{col};border:1px solid {alfa(col, 0.35)};")
         self.inizio = st.get("iniziata")
         self.fermo = stato != "in_corso"
         P = list(st["pokemon"].values())
         validi = [p for p in P if not p.get("irregolare")]
         coppie = sum(1 for r in st["percorsi"] if r["stato"] == "attiva")
         morti = sum(1 for p in P if p["stato"] == "morto")
-        for k, v in (("catture", len(validi)), ("coppie", coppie), ("morti", morti)):
-            l, t = self.chips[k]
-            colore = KO if k == "morti" and v else "#e8e9f0"
-            l.setText(f"<b style='color:{colore}'>{v}</b> <span style='color:{TENUE}'>{t}</span>")
+        sep = f"<span style='color:#4a4e62'>&nbsp;&nbsp;·&nbsp;&nbsp;</span>"
+        self.l_conti.setText(sep.join([
+            f"<b>{len(validi)}</b> <span style='color:{TENUE}'>catture</span>",
+            f"<b>{coppie}</b> <span style='color:{TENUE}'>legami vivi</span>",
+            f"<b style='color:{KO if morti else TESTO}'>{morti}</b> <span style='color:{TENUE}'>morti</span>"]))
         G = list(st["giocatori"])
-        ordine = sorted(G, key=lambda g: g != io)
+        colori = colori_giocatori(st)
+        ordine = sorted(G, key=lambda g: (g != io, st["giocatori"][g].get("entrato") or 0, g))
         for i, c in enumerate(self.carte):
             if i < len(ordine):
-                c.imposta(ordine[i], st["giocatori"][ordine[i]], ordine[i] == io)
+                g = ordine[i]
+                squadra = sorted((p for p in P if p["giocatore"] == g and p["stato"] == "squadra"), key=lambda p: p.get("slot", 0))
+                c.imposta(g, st["giocatori"][g], squadra, g == io, colori.get(g, ACC))
                 c.show()
             else:
                 c.hide()
+
+    def imposta_partita(self, codice):
+        self.b_partita.setText(f"{codice or 'nessuna partita'}  ▾")
 
     def tic(self, fine=None):
         if self.inizio and not self.fermo:
@@ -146,52 +310,75 @@ class Carta(QFrame):
         super().__init__()
         self.setObjectName("carta")
         self.v = QVBoxLayout(self)
-        self.v.setContentsMargins(14, 10, 14, 12)
-        self.v.setSpacing(4)
+        self.v.setContentsMargins(18, 14, 18, 16)
+        self.v.setSpacing(6)
         self.v.addWidget(etichetta(titolo, "sezione"))
+        self.v.addSpacing(2)
 
 
-TIPI_OB = {"palestra": "Capopalestra", "rivale": "Rivale", "plasma": "Team Plasma", "lega": "Superquattro", "campione": "Campionessa"}
+TIPI_OB = {"palestra": "Capopalestra", "rivale": "Rivale", "plasma": "Team Plasma", "lega": "Superquattro", "campione": "Campionessa",
+           "sfida": "Sfida"}
 
 
 class CartaObiettivo(Carta):
     def __init__(self):
         super().__init__("PROSSIMO OBIETTIVO")
+        self.l_tappa = etichetta("", "tenue")
         self.l_nome = etichetta("—", "grande")
         self.l_tipo = etichetta("", "tenue")
-        self.l_cap = etichetta("")
         self.barra = QProgressBar()
         self.barra.setTextVisible(False)
         self.barra.setStyleSheet(f"QProgressBar::chunk{{background:{ACC};}}")
         self.l_prog = etichetta("", "tenue")
+        self.l_cap = etichetta("")
         self.l_altro = etichetta("", "tenue", a_capo=True)
-        for w in (self.l_nome, self.l_tipo, self.l_cap, self.barra, self.l_prog, self.l_altro):
+        for w in (self.l_tappa, self.l_nome, self.l_tipo):
             self.v.addWidget(w)
+        self.v.addSpacing(4)
+        self.v.addWidget(self.barra)
+        self.v.addWidget(self.l_prog)
+        self.v.addSpacing(4)
+        self.v.addWidget(self.l_cap)
+        self.v.addSpacing(6)
+        self.v.addWidget(self.l_altro)
         self.v.addStretch()
 
     def aggiorna(self, st, io):
         x = st["giocatori"].get(io) or {}
         o = x.get("prossimo")
-        tot = len(st.get("obiettivi", []))
+        tot = len(st.get("voci") or st.get("obiettivi", []))
         fatti = len((st.get("fatti") or {}).get(io, {}))
         if o:
+            if o.get("tappa"):
+                self.l_tappa.setText(f"Tappa {o['tappa_n']} di {o['tappe']} · <b style='color:#c9cbd6'>{o['tappa']}</b>")
+                self.barra.setRange(0, o["tappa_voci"])
+                self.barra.setValue(o["tappa_fatte"])
+                self.l_prog.setText(f"{o['tappa_fatte']} di {o['tappa_voci']} in questa tappa · {fatti}/{tot} in tutto")
+            else:
+                self.l_tappa.setText("")
+                self.barra.setRange(0, max(1, tot))
+                self.barra.setValue(fatti)
+                self.l_prog.setText(f"{fatti} di {tot} obiettivi")
             self.l_nome.setText(o["nome"])
             self.l_tipo.setText(TIPI_OB.get(o["tipo"], o["tipo"]) + (f" · medaglia {o['medaglia']}" if o.get("medaglia") else ""))
         else:
+            self.l_tappa.setText("")
             self.l_nome.setText("Tutto completato!")
             self.l_tipo.setText("")
+            self.barra.setRange(0, 1)
+            self.barra.setValue(1)
+            self.l_prog.setText(f"{fatti}/{tot}")
         self.l_cap.setText(f"Livello massimo adesso: <b style='color:{WARN};font-size:12pt'>{x.get('cap', '?')}</b>")
-        self.barra.setRange(0, max(1, tot))
-        self.barra.setValue(fatti)
-        self.l_prog.setText(f"{fatti} di {tot} obiettivi")
-        altri = [(g, y) for g, y in st["giocatori"].items() if g != io]
-        if altri:
-            g, y = altri[0]
+        righe = []
+        for g, y in st["giocatori"].items():
+            if g == io:
+                continue
             po = y.get("prossimo")
             nf = len((st.get("fatti") or {}).get(g, {}))
-            self.l_altro.setText(f"{g}: {po['nome'] if po else 'tutto completato'} · {nf}/{tot}")
-        else:
-            self.l_altro.setText("")
+            dove = f"tappa {po['tappa_n']}: {po['nome']}" if po and po.get("tappa") else (po["nome"] if po else "tutto completato")
+            righe.append(f"<b style='color:#c9cbd6'>{g}</b>&nbsp; {dove} <span style='color:#6f7389'>· {nf}/{tot}</span>")
+        self.l_altro.setText(paragrafi(righe, 5))
+        self.l_altro.setVisible(bool(righe))
 
 
 class CartaLuogo(Carta):
@@ -201,8 +388,13 @@ class CartaLuogo(Carta):
         self.l_io = etichetta("", a_capo=True)
         self.l_altro = etichetta("", a_capo=True)
         self.l_nota = etichetta("", "tenue", a_capo=True)
-        for w in (self.l_luogo, self.l_io, self.l_altro, self.l_nota):
-            self.v.addWidget(w)
+        self.v.addWidget(self.l_luogo)
+        self.v.addSpacing(4)
+        self.v.addWidget(self.l_io)
+        self.v.addSpacing(2)
+        self.v.addWidget(self.l_altro)
+        self.v.addSpacing(4)
+        self.v.addWidget(self.l_nota)
         self.v.addStretch()
 
     @staticmethod
@@ -211,16 +403,17 @@ class CartaLuogo(Carta):
         x = (riga or {}).get("giocatori", {}).get(g) or {}
         cat, inc = x.get("cattura"), x.get("incontro")
         if cat:
-            stato = {"morto": "morto", "box": "nel box", "liberato": "liberato"}.get(cat["stato"], "in squadra")
-            return f"Catturato: <b>{nome(cat)}</b> ({stato})", KO if cat["stato"] == "morto" else OK
+            stato = {"morto": "morto", "box": "nel box", "liberato": "liberato"}.get(cat["stato"])
+            extra = f" <span style='color:{KO if cat['stato'] == 'morto' else TENUE}'>· {stato}</span>" if stato else ""
+            return f"ha preso <b>{nome(cat)}</b>{extra}", KO if cat["stato"] == "morto" else OK
         if inc:
             if inc["esito"] == "in_corso":
-                return f"In lotta con <b>{inc.get('nome_specie', '?')}</b>", WARN
+                return f"in lotta con <b>{inc.get('nome_specie', '?')}</b>", WARN
             if inc["esito"] == "fallito":
-                return f"Incontro usato: fallito ({inc.get('nome_specie', '?')})", KO
+                return f"incontro fallito <span style='color:{TENUE}'>({inc.get('nome_specie', '?')})</span>", KO
             if inc["esito"] == "incerto":
-                return f"Da confermare: {inc.get('nome_specie', '?')}", WARN
-        return "Incontro disponibile", OK
+                return f"da confermare: {inc.get('nome_specie', '?')} catturato?", WARN
+        return f"<span style='color:{TENUE}'>incontro ancora libero</span>", OK
 
     def aggiorna(self, st, io):
         x = st["giocatori"].get(io) or {}
@@ -233,40 +426,50 @@ class CartaLuogo(Carta):
             self.l_nota.setText("")
             return
         t, c = self.situazione(riga, io)
-        self.l_io.setText(f"<span style='color:{c}'>●</span> Tu: {t}")
-        altri = [g for g in st["giocatori"] if g != io]
-        nota = ""
-        if altri:
-            g = altri[0]
+        self.l_io.setText(f"<span style='color:{c}'>●</span>&nbsp; <b>Tu</b> — {t}")
+        righe, nota = [], ""
+        for g in st["giocatori"]:
+            if g == io:
+                continue
             t2, c2 = self.situazione(riga, g)
-            self.l_altro.setText(f"<span style='color:{c2}'>●</span> {g}: {t2}")
+            righe.append(f"<span style='color:{c2}'>●</span>&nbsp; <b style='color:#c9cbd6'>{g}</b> — {t2}")
             xa = ((riga or {}).get("giocatori", {}).get(g) or {})
             if xa.get("incontro") and xa["incontro"]["esito"] == "fallito":
                 nota = f"{g} ha fallito qui: un'eventuale cattura tua andrà nel box."
-        else:
-            self.l_altro.setText("")
+        self.l_altro.setText(paragrafi(righe, 5))
+        self.l_altro.setVisible(bool(righe))
         self.l_nota.setText(nota)
+        self.l_nota.setVisible(bool(nota))
 
 
 # ----------------------------------------------------------------------------------------------
 class MiniPokemon(QWidget):
-    def __init__(self, p, sprite, allinea_destra=False):
+    def __init__(self, p, sprite, allinea_destra=False, giocatore=None, colore_g=ACC):
         super().__init__()
+        self.setAttribute(Qt.WA_TranslucentBackground)
         h = QHBoxLayout(self)
         h.setContentsMargins(0, 0, 0, 0)
-        h.setSpacing(8)
+        h.setSpacing(10)
         img = QLabel()
-        img.setFixedSize(52, 52)
+        img.setFixedSize(54, 54)
         img.setAlignment(Qt.AlignCenter)
         if p:
-            pm = sprite.pixmap(p["specie"], 52)
+            tc = COLORI_TIPI.get((p.get("tipi") or ["?"])[0], "#888888")
+            if p["stato"] == "morto":
+                tc = "#555a6e"
+            img.setStyleSheet(f"background: qradialgradient(cx:0.5, cy:0.55, radius:0.6, fx:0.5, fy:0.55, stop:0 {alfa(tc, 0.32)},"
+                              f" stop:1 {alfa(tc, 0.06)}); border-radius: 27px;")
+            pm = sprite.pixmap(p["specie"], 50)
             if pm:
                 img.setPixmap(pm)
+        else:
+            img.setStyleSheet("background: rgba(255,255,255,0.03); border-radius: 27px;")
         col = QVBoxLayout()
         col.setSpacing(1)
         if p:
             stato = "" if p["stato"] == "squadra" else f" <span style='color:{KO if p['stato'] == 'morto' else WARN}'>· {p['stato']}</span>"
-            col.addWidget(etichetta(f"<b>{nome(p)}</b> <span style='color:{TENUE}'>Lv.{p.get('livello') or '?'}</span>{stato}"))
+            chi = f"<span style='color:{colore_g};font-weight:600'>{giocatore}</span>&nbsp;&nbsp;" if giocatore else ""
+            col.addWidget(etichetta(f"{chi}<b>{nome(p)}</b> <span style='color:{TENUE}'>Lv.{p.get('livello') or '?'}</span>{stato}"))
             tipi = " ".join(f"<span style='color:{COLORI_TIPI.get(t, '#888')}'>{t}</span>" for t in p.get("tipi", []))
             col.addWidget(etichetta(f"<span style='color:{TENUE}'>{p.get('nome_specie', '')}</span> · {tipi}"))
             if p.get("ps_max"):
@@ -276,7 +479,7 @@ class MiniPokemon(QWidget):
                 b.setValue(p.get("ps") or 0)
                 perc = (p.get("ps") or 0) / p["ps_max"]
                 c = OK if perc > 0.5 else WARN if perc > 0.2 else KO
-                b.setStyleSheet(f"QProgressBar::chunk{{background:{c};}}")
+                b.setStyleSheet(f"QProgressBar::chunk{{background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(c, 0.7)}, stop:1 {c});}}")
                 b.setToolTip(f"PS {p.get('ps')}/{p['ps_max']}")
                 col.addWidget(b)
         else:
@@ -301,8 +504,8 @@ class PannelloCoppie(QScrollArea):
         w = QWidget()
         w.setObjectName("interno")
         self.v = QVBoxLayout(w)
-        self.v.setContentsMargins(10, 10, 10, 10)
-        self.v.setSpacing(8)
+        self.v.setContentsMargins(4, 6, 8, 6)
+        self.v.setSpacing(10)
         self.setWidget(w)
         self._firma = None
 
@@ -313,6 +516,7 @@ class PannelloCoppie(QScrollArea):
         ev = st.get("eventi", [])[:6]
         if not ev:
             return
+        self.v.addSpacing(8)
         self.v.addWidget(etichetta("ULTIMI EVENTI", "sezione"))
         for e in ev:
             ora = time.strftime("%H:%M", time.localtime(e["t"]))
@@ -326,36 +530,49 @@ class PannelloCoppie(QScrollArea):
         self._firma = firma
         pulisci(self.v)
         G = list(st["giocatori"])
-        altro = next((g for g in G if g != io), None)
+        colori = colori_giocatori(st)
+        altri = [g for g in G if g != io]
         miei = sorted([p for p in P.values() if p["giocatore"] == io and p["stato"] == "squadra"], key=lambda p: p.get("slot", 0))
-        self.v.addWidget(etichetta(f"LA TUA SQUADRA E I LEGAMI{' CON ' + altro.upper() if altro else ''}", "sezione"))
+        titolo = "LA TUA SQUADRA E I LEGAMI" + (f" CON {', '.join(altri).upper()}" if altri else "")
+        self.v.addWidget(etichetta(titolo, "sezione"))
         usati = set()
         for p in miei:
-            q = P.get(p.get("partner")) if p.get("partner") else None
-            if q:
-                usati.add(q["chiave"])
+            gruppo = [P[x] for x in p.get("partners", []) if x in P]
+            usati.update(q["chiave"] for q in gruppo)
             riga = QFrame()
             riga.setObjectName("coppia")
-            if q and q["stato"] != "squadra":
+            if any(q["stato"] != "squadra" for q in gruppo):
                 riga.setProperty("allarme", True)
             h = QHBoxLayout(riga)
-            h.setContentsMargins(10, 6, 10, 6)
-            h.addWidget(MiniPokemon(p, self.sprite), 1)
-            catena = etichetta("⛓", stile=f"color:{ACC if q else '#3a3e52'};font-size:16pt;")
+            h.setContentsMargins(16, 12, 16, 12)
+            h.setSpacing(12)
+            h.addWidget(MiniPokemon(p, self.sprite), 1, Qt.AlignVCenter)
+            catena = etichetta("⛓", stile=f"color:{'#b08cff' if gruppo else '#343850'};font-size:15pt;background:transparent;")
+            catena.setToolTip("legati" if gruppo else "nessun legame")
             catena.setAlignment(Qt.AlignCenter)
-            catena.setFixedWidth(30)
+            catena.setFixedWidth(28)
             h.addWidget(catena)
-            h.addWidget(MiniPokemon(q, self.sprite, allinea_destra=True), 1)
-            if q and q["stato"] == "box":
-                riga.setToolTip(f"{nome(q)} è nel box di {altro}: dovresti mettere nel box anche {nome(p)}")
+            destra = QVBoxLayout()
+            destra.setSpacing(6)
+            for q in gruppo or [None]:
+                destra.addWidget(MiniPokemon(q, self.sprite, allinea_destra=True, giocatore=q["giocatore"] if q and len(altri) > 1 else None,
+                                             colore_g=colori.get(q["giocatore"], ACC) if q else ACC))
+            h.addLayout(destra, 1)
+            nel_box = [q for q in gruppo if q["stato"] == "box"]
+            if nel_box:
+                riga.setToolTip(f"{nome(nel_box[0])} è nel box di {nel_box[0]['giocatore']}: dovresti mettere nel box anche {nome(p)}")
             self.v.addWidget(riga)
         if not miei:
             self.v.addWidget(etichetta("Ancora nessun Pokémon in squadra.", "tenue"))
-        if altro:
-            loro = [p for p in P.values() if p["giocatore"] == altro and p["stato"] == "squadra" and p["chiave"] not in usati]
+        for g in altri:
+            loro = [p for p in P.values() if p["giocatore"] == g and p["stato"] == "squadra" and p["chiave"] not in usati]
             if loro:
-                self.v.addWidget(etichetta(f"IN SQUADRA DA {altro.upper()} (IL LORO PARTNER NON È NELLA TUA SQUADRA)", "sezione"))
+                self.v.addSpacing(6)
+                self.v.addWidget(etichetta(f"<span style='color:{colori.get(g, ACC)}'>●</span>&nbsp; IN SQUADRA DA {g.upper()}, SENZA LEGAME CON LA TUA",
+                                           "sezione"))
                 gr = QGridLayout()
+                gr.setHorizontalSpacing(16)
+                gr.setVerticalSpacing(8)
                 for i, p in enumerate(sorted(loro, key=lambda p: p.get("slot", 0))):
                     gr.addWidget(MiniPokemon(p, self.sprite), i // 2, i % 2)
                 self.v.addLayout(gr)
@@ -363,6 +580,7 @@ class PannelloCoppie(QScrollArea):
         box_vivi = [p for p in P.values() if p["giocatore"] == io and p["stato"] == "box"]
         if box_vivi:
             nomi = ", ".join(nome(p) for p in box_vivi[:12]) + ("…" if len(box_vivi) > 12 else "")
+            self.v.addSpacing(8)
             self.v.addWidget(etichetta(f"NEL TUO BOX ({len(box_vivi)})", "sezione"))
             self.v.addWidget(etichetta(nomi, "tenue", a_capo=True))
         self.v.addStretch()
@@ -387,3 +605,66 @@ class OspiteGioco(QWidget):
     def dimensioni_fisiche(self):
         r = self.devicePixelRatioF()
         return int(self.width() * r), int(self.height() * r)
+
+
+# ----------------------------------------------------------------------------------------------
+class Notifiche(QWidget):
+    """Notifiche a comparsa in basso a destra (sopra i pannelli, non sopra il gioco)."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.v = QVBoxLayout(self)
+        self.v.setContentsMargins(0, 0, 0, 0)
+        self.v.setSpacing(8)
+        self.v.addStretch()
+        self.setFixedWidth(340)
+        self.attive = []
+
+    def mostra(self, testo, colore=None, secondi=6):
+        from PySide6.QtCore import QTimer
+        t = testo.lower()
+        if colore is None:
+            colore = (KO if ("morto" in t or "game over" in t) else
+                      ORO if any(x in t for x in ("traguardo", "battuto", "obiettivo", "medaglia", "vinta")) else
+                      "#b9a8ff" if ("legame" in t or "shiny" in t) else
+                      WARN if any(x in t for x in ("fallito", "attenzione", "regola", "box")) else
+                      OK if "primo incontro" in t else "#c9cbd6")
+        f = QFrame()
+        f.setObjectName("notifica")
+        ombra(f, 28, 160, 8)
+        h = QHBoxLayout(f)
+        h.setContentsMargins(12, 10, 14, 10)
+        h.setSpacing(10)
+        barra = QLabel()
+        barra.setFixedWidth(4)
+        barra.setStyleSheet(f"background:{colore};border-radius:2px;")
+        h.addWidget(barra)
+        l = etichetta(testo, a_capo=True)
+        h.addWidget(l, 1)
+        self.v.addWidget(f)
+        self.attive.append(f)
+        while len(self.attive) > 3:
+            vecchia = self.attive.pop(0)
+            vecchia.hide()
+            self.v.removeWidget(vecchia)
+            vecchia.deleteLater()
+        self.riposiziona()
+        self.show()
+        self.raise_()
+
+        def togli():
+            if f in self.attive:
+                self.attive.remove(f)
+                f.hide()
+                self.v.removeWidget(f)
+                f.deleteLater()
+            QTimer.singleShot(50, self.riposiziona)
+        QTimer.singleShot(secondi * 1000, togli)
+
+    def riposiziona(self):
+        p = self.parentWidget()
+        if not p:
+            return
+        h = min(p.height() - 24, 420)          # il riquadro è trasparente: le notifiche stanno in fondo
+        self.setGeometry(p.width() - self.width() - 14, p.height() - h - 12, self.width(), h)

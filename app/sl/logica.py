@@ -1,7 +1,7 @@
 """LOGICA SOUL LINK - funzioni pure sullo stato della partita.
 
 Traduzione fedele della versione JavaScript (verificata confrontando le due su scenari casuali).
-Lo stato e' un dizionario serializzabile in JSON: le chiavi dei dizionari sono sempre stringhe.
+Lo stato è un dizionario serializzabile in JSON: le chiavi dei dizionari sono sempre stringhe.
 """
 import json
 import math
@@ -12,10 +12,11 @@ _base = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent.parent))
 _DATI = json.loads((_base / "risorse" / "dati.json").read_text("utf-8"))
 POKEDEX, LUOGHI, ZONE, ZONE_NOMI_EN = _DATI["pokedex"], _DATI["luoghi"], _DATI["zone"], _DATI["zone_nomi_en"]
 
+MAX_GIOCATORI = 4
 LEVEL_CAP = [13, 18, 24, 30, 33, 39, 48, 51, 58, 59]
 NOMI_CAP = ["Cheren", "Rosy", "Artemisio", "Camelia", "Rafan", "Anisia", "Aristide", "Ciprian", "Superquattro", "Iris"]
 
-# obiettivi principali: ID allenatore (Nero 2 / Bianco 2, dal NDS Ironmon Tracker); "asso" = livello del Pokemon piu' forte
+# obiettivi principali: ID allenatore (Nero 2 / Bianco 2, dal NDS Ironmon Tracker); "asso" = livello del Pokemon più forte
 OBIETTIVI = [
     {"id": "rivale1", "nome": "Rivale (prima lotta)", "tipo": "rivale", "ids": [161, 162, 163]},
     {"id": "cheren", "nome": "Cheren", "tipo": "palestra", "medaglia": 1, "ids": [156]},
@@ -39,6 +40,42 @@ OBIETTIVI = [
     {"id": "iris", "nome": "Iris (Campionessa)", "tipo": "campione", "ids": [341]},
 ]
 OBIETTIVO_DA_ID = {i: o for o in OBIETTIVI for i in o["ids"]}
+
+# ---- novita' (tappe, sfide, traguardi). EXTRA = False riporta alle sole regole di base (usato nei test di confronto)
+EXTRA = True
+
+# piccole sfide automatiche dentro le tappe
+SFIDE = [
+    {"id": "cattura2", "nome": "Cattura il primo selvatico", "tipo": "sfida"},
+    {"id": "squadra4", "nome": "Squadra di 4 Pokémon", "tipo": "sfida"},
+    {"id": "evoluzione", "nome": "Fai evolvere un Pokémon", "tipo": "sfida"},
+    {"id": "squadra6", "nome": "Squadra al completo (6)", "tipo": "sfida"},
+]
+TAPPE = [
+    {"id": "t1", "nome": "Si parte!", "luogo": "Alisopoli", "voci": ["rivale1", "cattura2", "cheren"]},
+    {"id": "t2", "nome": "Verso Zondopoli", "luogo": "Zondopoli", "voci": ["rivale2", "rosy"]},
+    {"id": "t3", "nome": "La grande città", "luogo": "Austropoli", "voci": ["squadra4", "artemisio"]},
+    {"id": "t4", "nome": "Luci di Sciroccopoli", "luogo": "Sciroccopoli", "voci": ["evoluzione", "camelia"]},
+    {"id": "t5", "nome": "Il porto", "luogo": "Libecciopoli", "voci": ["squadra6", "rafan"]},
+    {"id": "t6", "nome": "In volo", "luogo": "Ponentopoli", "voci": ["anisia", "rivale3"]},
+    {"id": "t7", "nome": "Contro il Team Plasma", "luogo": "Boreduopoli", "voci": ["aristide", "acromio", "ghecis"]},
+    {"id": "t8", "nome": "Verso il mare", "luogo": "Grecalopoli", "voci": ["rivale4", "ciprian"]},
+    {"id": "t9", "nome": "La Lega Pokémon", "luogo": "Lega Pokémon", "voci": ["rivale5", "antea", "marzio", "mirton", "catlina", "iris"]},
+]
+TRAGUARDI = [
+    {"id": "primo_legame", "nome": "Primo legame", "desc": "Forma il primo legame con un compagno"},
+    {"id": "collezionista", "nome": "Collezionista", "desc": "10 catture valide"},
+    {"id": "esploratore", "nome": "Esploratore", "desc": "Primo incontro in 12 luoghi diversi"},
+    {"id": "fortuna", "nome": "Colpo di fortuna", "desc": "Incontra un Pokémon shiny"},
+    {"id": "impeccabile", "nome": "Palestra impeccabile", "desc": "Vinci una medaglia senza aver perso nessuno dalla precedente"},
+    {"id": "disciplina", "nome": "Disciplina", "desc": "Vinci una medaglia con tutta la squadra entro il level cap"},
+    {"id": "compagno", "nome": "Fedele compagno", "desc": "Arriva alla 4ª medaglia con lo starter ancora vivo"},
+    {"id": "intoccabili", "nome": "Intoccabili", "desc": "Arriva all'8ª medaglia perdendo al massimo 3 Pokémon"},
+]
+VOCI = {o["id"]: o for o in OBIETTIVI + SFIDE}
+for _t in TAPPE:
+    for _v in _t["voci"]:
+        VOCI[_v] = dict(VOCI[_v], tappa=_t["id"])
 
 
 def info(sp):
@@ -68,14 +105,21 @@ def nome_luogo(k):
 
 def nuovo_stato(ora):
     s = {"run": 1, "giocatori": {}, "storico": [], "tid_vecchi": {}, "id_msg": 0, "zone_apprese": {},
-         "regole": {"doppioni": True, "shiny": True, "tutorial": True}}
+         "regole": {"doppioni": True, "shiny": True, "tutorial": True}, "edizione": _nuova_edizione()}
     _azzera_run(s, ora)
     return s
+
+
+def _nuova_edizione():
+    import secrets
+    return secrets.token_hex(3)
 
 
 def _azzera_run(s, ora):
     s.update({"stato": "in_corso", "motivo": "", "iniziata": ora, "lega": False, "pokemon": {}, "incontri": [],
               "eventi": [], "messaggi": {}, "ordine": 0, "avvisi_inviati": [], "obiettivi": {}})
+    if EXTRA:
+        s.update({"traguardi": {}, "medaglie_t": {}})
     for g in s["giocatori"].values():
         g["medaglie"] = 0
         g["box_ok"] = False
@@ -90,8 +134,8 @@ def nome(p):
     return p.get("soprannome") or info(p["specie"])["nome"]
 
 
-def altro(s, g):
-    return next((x for x in s["giocatori"] if x != g), None)
+def altri(s, g):
+    return [x for x in s["giocatori"] if x != g]
 
 
 def _evento(s, ora, testo, tipo="info"):
@@ -145,17 +189,21 @@ def _cattura_di(s, g, luogo):
     return best
 
 
-def partner(s, chiave):
+def partners(s, chiave):
+    """Gli altri membri del gruppo legato (stesso luogo). Se anche uno solo ha fallito l'incontro, il gruppo è rotto."""
     p = s["pokemon"].get(chiave)
     if not p or p["irregolare"]:
-        return None
-    a = altro(s, p["giocatore"])
-    if not a:
-        return None
+        return []
     luogo = _s(p["luogo"])
-    if _fallito(s, a, luogo):
-        return None
-    return _cattura_di(s, a, luogo)
+    A = altri(s, p["giocatore"])
+    if any(_fallito(s, x, luogo) for x in [p["giocatore"]] + A):
+        return []
+    return [k for k in (_cattura_di(s, a, luogo) for a in A) if k]
+
+
+def partner(s, chiave):
+    l = partners(s, chiave)
+    return l[0] if l else None
 
 
 def _fallito(s, g, luogo):
@@ -170,16 +218,31 @@ def _morte(s, ora, chiave, causa, propaga=True):
         return
     p.update(stato="morto", causa=causa, morto=ora)
     g = p["giocatore"]
-    _evento(s, ora, f"{g}: {nome(p)} è morto ({causa})", "morte")
-    _msg(s, g, f"{nome(p)} e' morto. Riposa in pace.")
+    _evento(s, ora, f"{nome(p)} di {g} è morto ({causa})", "morte")
+    _msg(s, g, f"{nome(p)} è morto. Riposa in pace.")
     if not propaga:
         return
-    k = partner(s, chiave)
-    if k and vivo(s["pokemon"][k]):
+    for k in partners(s, chiave):
+        if not vivo(s["pokemon"][k]):
+            continue
         q = s["pokemon"][k]
-        _morte(s, ora, k, f"legame con {nome(p)} di {g}", False)
+        _morte(s, ora, k, f"legato a {nome(p)} di {g}", False)
         s["avvisi_inviati"].append(f"rianimato:{k}")
-        _msg(s, q["giocatore"], f"{nome(p)} di {g} e' morto: muore anche il tuo {nome(q)}! Mettilo nel box.")
+        _msg(s, q["giocatore"], f"{nome(p)} di {g} è morto: muore anche il tuo {nome(q)}. Mettilo nel box.")
+
+
+def _allinea_legami(s, ora):
+    """Un gruppo può ricomporsi (incontro annullato, luogo imparato meglio): chi è legato a un morto muore anche lui."""
+    if s["stato"] != "in_corso":
+        return
+    for k, p in list(s["pokemon"].items()):
+        if not vivo(p) or p["irregolare"]:
+            continue
+        morto = next((s["pokemon"][x] for x in partners(s, k) if s["pokemon"][x]["stato"] == "morto"), None)
+        if morto:
+            _morte(s, ora, k, f"legato a {nome(morto)} di {morto['giocatore']}", False)
+            _msg(s, p["giocatore"], f"{nome(morto)} di {morto['giocatore']} è morto: muore anche il tuo {nome(p)}. Mettilo nel box.")
+    _controlla_estinzione(s, ora)
 
 
 def game_over(s, ora, motivo):
@@ -199,7 +262,7 @@ def _controlla_estinzione(s, ora):
     for g in list(s["giocatori"]):
         suoi = [p for p in s["pokemon"].values() if p["giocatore"] == g and not p["irregolare"]]
         if suoi and not any(vivo(p) for p in suoi):
-            game_over(s, ora, f"{g} non ha piu' Pokemon vivi")
+            game_over(s, ora, f"{g} non ha più Pokémon vivi")
 
 
 def nuova_run(s, ora):
@@ -213,8 +276,8 @@ def nuova_run(s, ora):
             l.append(p["tid"])
     s["run"] += 1
     _azzera_run(s, ora)
-    _evento(s, ora, f"Inizia la run #{s['run']}! Le nuove ROM vengono generate in automatico.")
-    _msg_tutti(s, f"Run #{s['run']}: genero la nuova ROM randomizzata...")
+    _evento(s, ora, f"Inizia la run #{s['run']}: nuove ROM per tutti.")
+    _msg_tutti(s, f"Run #{s['run']}: preparo le nuove ROM…")
 
 
 # ---------- obiettivi ----------
@@ -233,13 +296,72 @@ def _completa_obiettivo(s, ora, g, o, come):
         if G and all(s["obiettivi"].get(x) and s["obiettivi"][x].get("iris") for x in G) and s["stato"] == "in_corso":
             s["stato"] = "vinta"
             s["motivo"] = "Tutti e due avete battuto Iris!"
-            _evento(s, ora, "RUN VINTA! Tutti e due avete battuto Iris!", "obiettivo")
+            _evento(s, ora, "RUN VINTA! Tutti hanno battuto Iris!", "obiettivo")
             _msg_tutti(s, "RUN VINTA! Complimenti!")
             pk = list(s["pokemon"].values())
             s["storico"].append({"run": s["run"], "motivo": "VINTA", "inizio": s["iniziata"], "fine": ora, "medaglie": 8,
                                  "catture": len(pk), "morti": sum(1 for p in pk if p["stato"] == "morto"), "vinta": True})
         else:
-            _msg(s, g, "Hai battuto la Campionessa! Aspetta che ce la faccia anche l'altro.")
+            _msg(s, g, "Hai battuto la Campionessa! Ora tocca agli altri.")
+
+
+# ---------- sfide e traguardi ----------
+def _completa_sfida(s, ora, g, voce):
+    mio = s.setdefault("obiettivi", {}).setdefault(g, {})
+    if mio.get(voce["id"]):
+        return
+    mio[voce["id"]] = {"t": ora, "come": "auto"}
+    _evento(s, ora, f"{g} ha completato «{voce['nome']}»", "obiettivo")
+    _msg(s, g, f"Obiettivo completato: {voce['nome']}")
+
+
+def _sblocca(s, ora, g, tid):
+    mio = s.setdefault("traguardi", {}).setdefault(g, {})
+    if mio.get(tid):
+        return
+    t = next(x for x in TRAGUARDI if x["id"] == tid)
+    mio[tid] = {"t": ora}
+    _evento(s, ora, f"{g} ha sbloccato il traguardo «{t['nome']}»", "traguardo")
+    _msg(s, g, f"Traguardo sbloccato: {t['nome']}")
+
+
+def _controlla_extra(s, ora, g, medaglie_prima, livelli_prima):
+    suoi = [p for p in s["pokemon"].values() if p["giocatore"] == g and not p["irregolare"]]
+    in_squadra = [p for p in suoi if p["stato"] == "squadra"]
+    morti = [p for p in suoi if p["stato"] == "morto"]
+    sfide = {x["id"]: x for x in SFIDE}
+    if len(suoi) >= 2:
+        _completa_sfida(s, ora, g, sfide["cattura2"])
+    if len(in_squadra) >= 4:
+        _completa_sfida(s, ora, g, sfide["squadra4"])
+    if len(in_squadra) >= 6:
+        _completa_sfida(s, ora, g, sfide["squadra6"])
+    if any(p.get("evoluto") for p in suoi):
+        _completa_sfida(s, ora, g, sfide["evoluzione"])
+    chiavi = [k for k, p in s["pokemon"].items() if p["giocatore"] == g and not p["irregolare"]]
+    if len(s["giocatori"]) >= 2 and any(partners(s, k) for k in chiavi):
+        _sblocca(s, ora, g, "primo_legame")
+    if len(suoi) >= 10:
+        _sblocca(s, ora, g, "collezionista")
+    luoghi = {luogo_incontro(s, e) for e in s["incontri"] if e["g"] == g and e.get("fonte") == "auto" and not e.get("ignorato")}
+    if len(luoghi) >= 12:
+        _sblocca(s, ora, g, "esploratore")
+    if any(e["g"] == g and e.get("shiny") for e in s["incontri"]):
+        _sblocca(s, ora, g, "fortuna")
+    nuove = s["giocatori"][g].get("medaglie") or 0
+    if nuove > medaglie_prima:
+        dal = s.setdefault("medaglie_t", {}).get(g, s["iniziata"])
+        if not any((p.get("morto") or 0) > dal for p in morti):
+            _sblocca(s, ora, g, "impeccabile")
+        if livelli_prima and max(livelli_prima) <= LEVEL_CAP[min(medaglie_prima, 8)]:
+            _sblocca(s, ora, g, "disciplina")
+        if nuove >= 4 and suoi:
+            starter = min(suoi, key=lambda p: p["ordine"])
+            if vivo(starter):
+                _sblocca(s, ora, g, "compagno")
+        if nuove >= 8 and len(morti) <= 3:
+            _sblocca(s, ora, g, "intoccabili")
+        s["medaglie_t"][g] = ora
 
 
 # ---------- catture ----------
@@ -262,19 +384,22 @@ def _nuova_cattura(s, ora, g, chiave, m):
     elif prima:
         p["irregolare"] = True
         _evento(s, ora, f"{g} ha un secondo Pokémon da {nome_luogo(luogo)}: {descr} (fuori regola)", "allarme")
-        _msg(s, g, f"Regola: hai gia' una cattura a {nome_luogo(luogo)}. {nome(p)} non vale.")
+        _msg(s, g, f"Regola: hai già una cattura a {nome_luogo(luogo)}. {nome(p)} non vale.")
     else:
         _evento(s, ora, f"{g} ha catturato {descr} a {nome_luogo(luogo)}", "cattura")
-        a = altro(s, g)
-        kq = _cattura_di(s, a, luogo) if a else None
-        if kq and not _fallito(s, a, luogo):
-            q = s["pokemon"][kq]
-            _msg_tutti(s, f"Nuovo legame a {nome_luogo(luogo)}: {nome(p)} <-> {nome(q)}")
-            _evento(s, ora, f"Legame creato: {nome(p)} ({g}) ↔ {nome(q)} ({a})", "legame")
-            if not vivo(q):
-                _morte(s, ora, chiave, f"il partner {nome(q)} era gia' morto", False)
-        elif a and _fallito(s, a, luogo):
-            _msg(s, g, f"{a} ha fallito l'incontro a {nome_luogo(luogo)}: {nome(p)} va nel box o liberato.")
+        A = altri(s, g)
+        falliti = [a for a in A if _fallito(s, a, luogo)]
+        membri = [(a, _cattura_di(s, a, luogo)) for a in A]
+        membri = [(a, k) for a, k in membri if k]
+        if membri and not falliti:
+            qs = [s["pokemon"][k] for _, k in membri]
+            _msg_tutti(s, f"Nuovo legame a {nome_luogo(luogo)}: " + " ↔ ".join(nome(x) for x in [p] + qs))
+            _evento(s, ora, f"Nuovo legame a {nome_luogo(luogo)}: " + " ↔ ".join(f"{nome(x)} ({x['giocatore']})" for x in [p] + qs), "legame")
+            morto = next((q for q in qs if not vivo(q)), None)
+            if morto:
+                _morte(s, ora, chiave, f"il compagno {nome(morto)} era già morto", False)
+        elif falliti:
+            _msg(s, g, f"{falliti[0]} ha fallito l'incontro a {nome_luogo(luogo)}: {nome(p)} va messo nel box o liberato.")
     return p
 
 
@@ -284,7 +409,9 @@ def _aggiorna_pokemon(s, ora, g, m, in_squadra):
     if not p:
         p = _nuova_cattura(s, ora, g, chiave, m)
     if p["specie"] != m["specie"] and p["specie"]:
-        _evento(s, ora, f"{g}: {nome(p)} si è evoluto in {info(m['specie'])['nome']}!")
+        _evento(s, ora, f"{nome(p)} di {g} si è evoluto in {info(m['specie'])['nome']}!")
+        if EXTRA:
+            p["evoluto"] = True
     p["specie"] = m["specie"]
     if m.get("soprannome"):
         p["soprannome"] = m["soprannome"]
@@ -307,10 +434,10 @@ def aggiorna_da_gioco(s, ora, d):
     if not g:
         return {"errore": "manca il nome del giocatore"}
     if g not in s["giocatori"]:
-        if len(s["giocatori"]) >= 2:
-            return {"errore": "Ci sono gia' due giocatori in questa partita."}
+        if len(s["giocatori"]) >= MAX_GIOCATORI:
+            return {"errore": f"La partita è già piena ({MAX_GIOCATORI} giocatori)."}
         s["giocatori"][g] = {"entrato": ora, "medaglie": 0}
-        _evento(s, ora, f"{g} si è unito alla partita")
+        _evento(s, ora, f"{g} è entrato nella partita")
     G = s["giocatori"][g]
     prima = G.get("visto") or 0
     G["visto"] = ora
@@ -327,10 +454,12 @@ def aggiorna_da_gioco(s, ora, d):
         cambiato = True
     G["run_rom"] = run_rom
     if not run_ok:
-        motivo = ("la ROM caricata non e' una ROM del Soul Link" if run_rom == -1
-                  else f"la ROM caricata e' della run {_s(run_rom)}, la run attuale e' la {s['run']}")
+        motivo = ("la ROM caricata non è una ROM del Soul Link" if run_rom == -1
+                  else f"la ROM caricata è della run {_s(run_rom)}, mentre la run attuale è la {s['run']}")
         return {"cambiato": cambiato, "ignorato": motivo}
     vecchi = set(s["tid_vecchi"].get(g, []) if run_rom is None else [])
+    medaglie_prima = G.get("medaglie") or 0
+    livelli_prima = [p.get("livello") or 0 for p in s["pokemon"].values() if p["giocatore"] == g and p["stato"] == "squadra" and not p["irregolare"]]
 
     def valido(m):
         return not m.get("uovo") and m.get("id_allenatore") not in vecchi
@@ -340,9 +469,9 @@ def aggiorna_da_gioco(s, ora, d):
     med = d.get("medaglie")
     if _numero(med) and med != G.get("medaglie"):
         if med > (G.get("medaglie") or 0):
-            _evento(s, ora, f"{g} ha ottenuto la medaglia n. {_s(med)}!", "cattura")
+            _evento(s, ora, f"{g} ha conquistato la {_s(med)}ª medaglia!", "obiettivo")
             cap = LEVEL_CAP[min(int(med), 8)]
-            _msg(s, g, f"Medaglia {_s(med)}! Nuovo level cap: {cap}")
+            _msg(s, g, f"{_s(med)}ª medaglia! Nuovo level cap: {cap}")
         G["medaglie"] = med
         if s["stato"] == "in_corso":
             for o in OBIETTIVI:
@@ -376,9 +505,9 @@ def aggiorna_da_gioco(s, ora, d):
                 if m.get("ps") == 0 and vivo(p):
                     _morte(s, ora, k, "KO in lotta")
                 elif (m.get("ps") or 0) > 0 and not vivo(p) and p["stato"] != "liberato":
-                    _avviso_unico(s, g, f"rianimato:{k}", f"ATTENZIONE: {nome(p)} e' morto, non puo' stare in squadra! Mettilo nel box.")
+                    _avviso_unico(s, g, f"rianimato:{k}", f"Attenzione: {nome(p)} è morto e non può stare in squadra. Mettilo nel box.")
             if squadra and all(m.get("ps") == 0 for m in squadra):
-                game_over(s, ora, f"{g} è stato sconfitto: tutta la squadra è KO")
+                game_over(s, ora, f"{g} ha perso tutta la squadra")
             _controlla_estinzione(s, ora)
 
     # 2) incontri selvatici e lotte con allenatori
@@ -395,14 +524,18 @@ def aggiorna_da_gioco(s, ora, d):
             if o:
                 _completa_obiettivo(s, ora, g, o, "lotta")
 
+    _allinea_legami(s, ora)
+    if EXTRA and s["stato"] == "in_corso":
+        _controlla_extra(s, ora, g, medaglie_prima, livelli_prima)
+
     # 3) legami: partner nel box
     for k, p in s["pokemon"].items():
         if p["giocatore"] != g or p["stato"] != "squadra":
             continue
-        kp = partner(s, k)
-        if kp and s["pokemon"][kp]["stato"] == "box":
+        kp = next((x for x in partners(s, k) if s["pokemon"][x]["stato"] == "box"), None)
+        if kp:
             q = s["pokemon"][kp]
-            _avviso_unico(s, g, f"box:{k}:{math.floor(ora / 300)}", f"{nome(q)} di {q['giocatore']} e' nel box: metti nel box anche {nome(p)}.")
+            _avviso_unico(s, g, f"box:{k}:{math.floor(ora / 300)}", f"{nome(q)} di {q['giocatore']} è nel box: metti nel box anche {nome(p)}.")
     return {"cambiato": True}
 
 
@@ -433,20 +566,20 @@ def _registra_incontro(s, ora, g, e):
         del s["incontri"][: len(s["incontri"]) - 600]
     ig = inc["ignorato"]
     if ig == "tutorial":
-        _msg(s, g, f"{sp}: e' l'incontro del tutorial, non conta.")
-        _evento(s, ora, f"{g}: incontro del tutorial ({sp}), non conta", "info")
+        _msg(s, g, f"{sp} è l'incontro del tutorial: non conta.")
+        _evento(s, ora, f"Incontro del tutorial di {g} ({sp}): non conta", "info")
     elif ig == "shiny":
-        _msg(s, g, f"SHINY! {sp} non conta come incontro: puoi catturarlo!")
-        _evento(s, ora, f"{g}: {sp} SHINY a {nome_luogo(luogo)}!", "legame")
+        _msg(s, g, f"{sp} shiny! Non conta come incontro: puoi catturarlo.")
+        _evento(s, ora, f"{g} ha incontrato un {sp} shiny a {nome_luogo(luogo)}!", "legame")
     elif ig == "luogo_usato":
-        _avviso_unico(s, g, f"usato:{g}:{luogo}", f"{nome_luogo(luogo)}: hai gia' una cattura qui, non catturare.")
+        _avviso_unico(s, g, f"usato:{g}:{luogo}", f"{nome_luogo(luogo)}: hai già una cattura qui, non catturare.")
     elif ig == "doppione":
-        _msg(s, g, f"{sp}: hai gia' questa famiglia, non conta (clausola doppioni).")
+        _msg(s, g, f"{sp}: hai già questa famiglia evolutiva, non conta (clausola doppioni).")
     elif not gia_primo:
         _msg(s, g, f"Primo incontro a {nome_luogo(luogo)}: {sp} Lv.{_s(e.get('livello'))}. Catturalo!")
-        _evento(s, ora, f"{g}: primo incontro a {nome_luogo(luogo)} → {sp} Lv.{_s(e.get('livello'))}", "incontro")
+        _evento(s, ora, f"Primo incontro di {g} a {nome_luogo(luogo)}: {sp} Lv.{_s(e.get('livello'))}", "incontro")
     else:
-        _avviso_unico(s, g, f"usato:{g}:{luogo}", f"{nome_luogo(luogo)}: incontro gia' usato, non catturare.")
+        _avviso_unico(s, g, f"usato:{g}:{luogo}", f"{nome_luogo(luogo)}: incontro già usato, non catturare.")
 
 
 def _esito_incontro(s, ora, g, e):
@@ -465,15 +598,15 @@ def _esito_incontro(s, ora, g, e):
         return
     sp = info(inc["specie"])["nome"]
     if inc["esito"] == "fallito":
-        _evento(s, ora, f"{g}: incontro fallito a {nome_luogo(luogo)} ({sp})", "allarme")
+        _evento(s, ora, f"{g} ha fallito il primo incontro a {nome_luogo(luogo)} ({sp})", "allarme")
         _msg(s, g, f"Incontro fallito a {nome_luogo(luogo)}.")
-        a = altro(s, g)
-        kq = _cattura_di(s, a, luogo) if a else None
-        if kq:
-            q = s["pokemon"][kq]
-            _msg(s, a, f"{g} ha fallito a {nome_luogo(luogo)}: il tuo {nome(q)} va nel box o liberato.")
+        for a in altri(s, g):
+            kq = _cattura_di(s, a, luogo)
+            if kq:
+                q = s["pokemon"][kq]
+                _msg(s, a, f"{g} ha fallito a {nome_luogo(luogo)}: il tuo {nome(q)} va messo nel box o liberato.")
     elif inc["esito"] == "incerto":
-        _evento(s, ora, f"{g}: non so se {sp} a {nome_luogo(luogo)} è stato catturato. Conferma sulla dashboard.", "allarme")
+        _evento(s, ora, f"Non so se {g} ha catturato {sp} a {nome_luogo(luogo)}: conferma nella scheda Percorsi.", "allarme")
 
 
 # ---------- azioni dall'interfaccia ----------
@@ -485,7 +618,7 @@ def azione(s, ora, d):
             return {"errore": "incontro non trovato"}
         if d.get("esito") == "annullato":
             inc["esito"] = "annullato"
-            _evento(s, ora, f"{inc['g']}: incontro a {nome_luogo(luogo_incontro(s, inc))} annullato")
+            _evento(s, ora, f"Incontro di {inc['g']} a {nome_luogo(luogo_incontro(s, inc))} annullato")
         else:
             inc["esito"] = "in_corso"
             _esito_incontro(s, ora, inc["g"], {"pid": inc["pid"], "esito": d.get("esito")})
@@ -494,7 +627,7 @@ def azione(s, ora, d):
         if not inc:
             return {"errore": "incontro non trovato"}
         inc["ignorato"] = None
-        _evento(s, ora, f"{inc['g']}: l'incontro con {info(inc['specie'])['nome']} ora conta")
+        _evento(s, ora, f"L'incontro di {inc['g']} con {info(inc['specie'])['nome']} ora conta")
     elif a == "fallito":
         luogo = _s(d.get("luogo"))
         s["incontri"].append({"id": len(s["incontri"]) + 1, "g": d.get("giocatore"), "zona": None, "luogo": luogo, "specie": 0,
@@ -516,24 +649,33 @@ def azione(s, ora, d):
     elif a == "stato_pokemon":
         p = s["pokemon"].get(d.get("chiave"))
         if not p:
-            return {"errore": "pokemon non trovato"}
+            return {"errore": "Pokémon non trovato"}
         st = d.get("stato")
         if st == "morto":
             _morte(s, ora, d["chiave"], "segnato a mano", d.get("propaga") is not False)
             _controlla_estinzione(s, ora)
         elif st in ("squadra", "box", "liberato"):
             p.update(stato=st, causa="")
-            _evento(s, ora, f"{p['giocatore']}: {nome(p)} segnato come '{st}'")
+            _evento(s, ora, f"{nome(p)} di {p['giocatore']} segnato a mano come «{ {'squadra': 'in squadra', 'box': 'nel box', 'valido': 'cattura valida'}.get(st, st) }»")
         elif st == "valido":
             p["irregolare"] = False
     elif a == "game_over":
         game_over(s, ora, d.get("motivo") or "game over dichiarato a mano")
     elif a == "nuova_run":
         nuova_run(s, ora)
+    elif a == "reset_partita":
+        giocatori = {g: {"entrato": x.get("entrato", ora), "medaglie": 0} for g, x in s["giocatori"].items()}
+        id_msg = s.get("id_msg", 0)
+        s.clear()
+        s.update(nuovo_stato(ora))
+        s["giocatori"], s["id_msg"] = giocatori, id_msg
+        _evento(s, ora, f"Partita azzerata da {d.get('giocatore', '?')}: si riparte dalla run #1", "allarme")
+        _msg_tutti(s, f"{d.get('giocatore', '?')} ha azzerato la partita: si riparte dalla run #1.")
     elif a == "rimuovi_giocatore":
         s["giocatori"].pop(d.get("giocatore"), None)
     else:
         return {"errore": "azione sconosciuta"}
+    _allinea_legami(s, ora)
     return {"ok": True}
 
 
@@ -547,7 +689,15 @@ def cap_di(s, g):
 
 def prossimo_obiettivo(s, g):
     mio = (s.get("obiettivi") or {}).get(g) or {}
-    return next((o for o in OBIETTIVI if not mio.get(o["id"])), None)
+    if not EXTRA:
+        return next((o for o in OBIETTIVI if not mio.get(o["id"])), None)
+    for i, t in enumerate(TAPPE):
+        mancanti = [v for v in t["voci"] if not mio.get(v)]
+        if mancanti:
+            v = VOCI[mancanti[0]]
+            return {**{k: v[k] for k in ("id", "nome", "tipo", "medaglia") if k in v}, "tappa": t["nome"], "tappa_n": i + 1,
+                    "tappe": len(TAPPE), "tappa_fatte": len(t["voci"]) - len(mancanti), "tappa_voci": len(t["voci"]), "luogo": t["luogo"]}
+    return None
 
 
 def vista(s, ora):
@@ -555,8 +705,9 @@ def vista(s, ora):
     pk = {}
     for k, p in s["pokemon"].items():
         i = info(p["specie"])
+        gr = partners(s, k)
         pk[k] = {**p, "chiave": k, "nome_specie": i["nome"], "tipi": i["tipi"], "luogo_nome": nome_luogo(p["luogo"]),
-                 "partner": partner(s, k)}
+                 "partner": gr[0] if gr else None, "partners": gr}
     luoghi = {}
 
     def tocca(l, t):
@@ -580,7 +731,7 @@ def vista(s, ora):
             r["stato"] = "rotta"
         elif any(m["cattura"] and not vivo(m["cattura"]) for m in membri):
             r["stato"] = "morta"
-        elif len(G) == 2 and all(m["cattura"] for m in membri):
+        elif len(G) >= 2 and all(m["cattura"] for m in membri):
             r["stato"] = "attiva"
         elif any(m["incontro"] and m["incontro"]["esito"] == "in_corso" for m in membri):
             r["stato"] = "in_lotta"
@@ -599,8 +750,8 @@ def vista(s, ora):
         lista = per_tipo.setdefault(p["tipi"][0], [])
         if _s(p["luogo"]) not in lista:
             lista.append(_s(p["luogo"]))
-        if p["partner"] and pk[p["partner"]]["stato"] == "box":
-            avvisi.append(f"{p['giocatore']}: {nome(p)} è in squadra ma il partner è nel box")
+        if any(pk[x]["stato"] == "box" for x in p["partners"]):
+            avvisi.append(f"{p['giocatore']}: {nome(p)} è in squadra ma il suo compagno è nel box")
     for t, l in per_tipo.items():
         if len(l) > 1:
             avvisi.append(f"Tipo primario {t} ripetuto in squadra: {', '.join(nome_luogo(x) for x in l)}")
@@ -610,8 +761,8 @@ def vista(s, ora):
     for p in pk.values():
         if p["stato"] != "squadra" or p["irregolare"]:
             continue
-        a = altro(s, p["giocatore"])
-        if a and _fallito(s, a, _s(p["luogo"])):
+        a = next((x for x in altri(s, p["giocatore"]) if _fallito(s, x, _s(p["luogo"]))), None)
+        if a:
             avvisi.append(f"{p['giocatore']}: {nome(p)} va nel box, {a} ha fallito l'incontro a {nome_luogo(p['luogo'])}")
     for g in G:
         x = s["giocatori"][g]
@@ -622,7 +773,7 @@ def vista(s, ora):
             avvisi.append(f"{e['g']}: conferma se {info(e['specie'])['nome']} ({nome_luogo(luogo_incontro(s, e))}) è stato catturato")
 
     return {
-        "run": s["run"], "stato": s["stato"], "motivo": s["motivo"], "iniziata": s["iniziata"], "lega": s.get("lega"),
+        "run": s["run"], "edizione": s.get("edizione", ""), "stato": s["stato"], "motivo": s["motivo"], "iniziata": s["iniziata"], "lega": s.get("lega"),
         "regole": s["regole"], "level_cap": LEVEL_CAP, "nomi_cap": NOMI_CAP,
         "giocatori": {g: {**s["giocatori"][g], "online": ora - (s["giocatori"][g].get("visto") or 0) < 45, "cap": cap_di(s, g),
                           "zona_nome": nome_luogo(luogo_incontro(s, {"zona": s["giocatori"][g]["zona"]})) if s["giocatori"][g].get("zona") is not None else None}
@@ -633,6 +784,7 @@ def vista(s, ora):
         "eventi": list(reversed(s["eventi"][-80:])), "storico": s["storico"], "luoghi": LUOGHI,
         "obiettivi": [{k: o[k] for k in ("id", "nome", "tipo", "medaglia") if k in o} for o in OBIETTIVI],
         "fatti": s.get("obiettivi") or {},
+        **({"tappe": TAPPE, "voci": VOCI, "traguardi_def": TRAGUARDI, "traguardi": s.get("traguardi") or {}} if EXTRA else {}),
     }
 
 

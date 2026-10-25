@@ -39,6 +39,7 @@ PREDEFINITA = {
     "salta_inizio": True,
     "cartella_saveram": "",
     "diagnostica": False,
+    "chiedi_partita": True,          # all'avvio chiede quale partita giocare
 }
 
 
@@ -51,6 +52,7 @@ class Config(dict):
                 self.update(json.loads(self.file.read_text("utf-8")))
             except Exception:
                 pass
+        self["randomizza"] = True          # la ROM si genera sempre dal randomizer
 
     def salva(self):
         tmp = self.file.with_suffix(".tmp")
@@ -70,24 +72,61 @@ class Config(dict):
             m.append("codice della partita")
         if not Path(self.get("bizhawk") or "").exists():
             m.append("BizHawk (EmuHawk.exe)")
-        if self.get("randomizza"):
-            for k, n in (("jar", "randomizer"), ("impostazioni", "impostazioni .rnqs"), ("rom_originale", "ROM originale")):
-                if not Path(self.get(k) or "").exists():
-                    m.append(n)
-        elif not Path(self.get("rom_manuale") or "").exists():
-            m.append("ROM da usare")
+        for k, n in (("jar", "randomizer"), ("impostazioni", "impostazioni .rnqs"), ("rom_originale", "la tua ROM")):
+            if not Path(self.get(k) or "").exists():
+                m.append(n)
         return m
 
 
-class StatoLocale(dict):
+class StatoLocale:
+    """Stato locale di ogni partita (per codice): ultima run, edizione, edizioni viste, riassunto per la scelta."""
+
     def __init__(self):
-        super().__init__({"ultima_run": 1})
         self.file = cartella_app() / "stato.json"
+        self.dati = {"partite": {}}
         if self.file.exists():
             try:
-                self.update(json.loads(self.file.read_text("utf-8")))
+                self.dati.update(json.loads(self.file.read_text("utf-8")))
             except Exception:
                 pass
+        self.dati.setdefault("partite", {})
 
     def salva(self):
-        self.file.write_text(json.dumps(dict(self)), "utf-8")
+        tmp = self.file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(self.dati, ensure_ascii=False), "utf-8")
+        os.replace(tmp, self.file)
+
+    def partita(self, codice: str) -> "LocalePartita":
+        codice = (codice or "").strip()
+        P = self.dati["partite"]
+        if codice and codice not in P:
+            P[codice] = {"ultima_run": 1, "edizioni": []}
+            vecchio = {k: self.dati.pop(k) for k in ("ultima_run", "ultima_edizione") if k in self.dati}
+            if vecchio:                        # file della versione 4.4 o precedente: era tutto di questa partita
+                P[codice].update(vecchio)
+                if vecchio.get("ultima_edizione"):
+                    P[codice]["edizioni"].append(vecchio["ultima_edizione"])
+            self.salva()
+        return LocalePartita(self, codice)
+
+    def codici(self) -> list:
+        """Partite conosciute, dalla più recente."""
+        P = self.dati["partite"]
+        return sorted(P, key=lambda c: -(P[c].get("ultimo_accesso") or 0))
+
+    def togli(self, codice):
+        self.dati["partite"].pop(codice, None)
+        self.salva()
+
+
+class LocalePartita(dict):
+    """Vista sulla partita attiva: si usa come un dizionario, salva() scrive tutto il file."""
+
+    def __init__(self, padre: StatoLocale, codice: str):
+        self.padre, self.codice = padre, codice
+        super().__init__(padre.dati["partite"].get(codice, {"ultima_run": 1, "edizioni": []}) if codice else {"ultima_run": 1})
+
+    def salva(self):
+        if self.codice:
+            self.padre.dati["partite"].setdefault(self.codice, {}).update(self)
+            self.padre.salva()
