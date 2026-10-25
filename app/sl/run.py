@@ -85,6 +85,12 @@ class GestoreRun:
                             cancellati.append(f)
                         except OSError:
                             pass
+        backup = self.cartella / "backup" / self.tag
+        if backup.exists():
+            for f in backup.rglob("*"):
+                if f.is_file():
+                    cancellati.append(f)
+            shutil.rmtree(backup, ignore_errors=True)
         if anche_partenza and self.file_base.exists():
             self.file_base.unlink()
             cancellati.append(self.file_base)

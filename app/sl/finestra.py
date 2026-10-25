@@ -22,6 +22,8 @@ from .pannelli import (PannelloCimitero, PannelloDiagnostica, PannelloDiario, Pa
                        PannelloStatistiche)
 from .ponte import Ponte
 from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
+from . import dialoghi
+from .backup import TIPI as TIPI_BACKUP, GestoreBackup
 from .partite import DialogoPartite
 from .reset import DialogoReset
 from .run import GestoreRun, run_della_rom
@@ -66,6 +68,8 @@ class Finestra(QMainWindow):
     _avviso = Signal(str, str)
     _per_reset = Signal()
     _per_cambio = Signal()
+    _risposte = Signal(object)        # risposte dello script ai comandi (backup fatto, stato caricato)
+    _in_gui = Signal(object)          # funzione da eseguire nel thread dell'interfaccia
 
     def __init__(self):
         super().__init__()
@@ -74,6 +78,14 @@ class Finestra(QMainWindow):
         self.locale = self.stato_locale.partita(self.cfg.get("codice"))
         self.sprite = Sprite()
         self.run_mgr = GestoreRun(self.cfg)
+        self.backup = GestoreBackup(self.run_mgr)
+        self._richieste = {}              # id -> backup/caricamento chiesto allo script
+        self._id_richiesta = 0
+        self._ultimo_backup = time.time()
+        self._gioco_attivo = False
+        self._ripresa_chiesta = set()
+        self._chiusura_pronta = False
+        self._in_chiusura = False
         self.emu = Emulatore()
         self.ponte = Ponte(self._risposta_script)
         self.sincro = Sincro(self.cfg)
@@ -244,6 +256,7 @@ class Finestra(QMainWindow):
         self.a_console = m_altro.addAction("Mostra la console Lua di BizHawk")
         self.a_console.setCheckable(True)
         m_altro.addSeparator()
+        m_altro.addAction("Backup e ripristino…", self._apri_backup)
         m_altro.addAction("Cambia partita…", self._cambia_partita)
         m_altro.addSeparator()
         m_altro.addAction("Reset totale…", self._reset_totale)
@@ -271,6 +284,11 @@ class Finestra(QMainWindow):
         self._avviso.connect(self._log)
         self._per_reset.connect(self._esegui_dopo_reset)
         self._per_cambio.connect(self._applica_partita)
+        self._risposte.connect(self._gestisci_risposte)
+        self._in_gui.connect(lambda f: f())
+        self._t_backup = QTimer(self)
+        self._t_backup.timeout.connect(self._backup_periodico)
+        self._t_backup.start(30000)
         self.barra.cambia_partita.connect(self._cambia_partita)
         self.ospite.ridimensionato.connect(self._adatta)
         self._t_adatta = QTimer(self)
@@ -361,7 +379,8 @@ class Finestra(QMainWindow):
             self.segnaposto.setText("Non sono riuscito a generare la ROM:\n\n" + msg)
             self.b_avvia_centro.setText("Riprova")
             self.b_avvia_centro.show()
-            QMessageBox.warning(self, "Randomizer", msg)
+            corto, _, lungo = msg.partition("\n")
+            dialoghi.avviso(self, "Il randomizer non è riuscito a creare la ROM", corto, "errore", dettagli=lungo.strip() or None)
             return
         self._log(f"ROM della run #{run} pronta: {Path(out).name}", OK)
         self.assicura_gioco()
@@ -407,10 +426,10 @@ class Finestra(QMainWindow):
             self._impostazioni()
             return
         if self.emu.in_esecuzione:
-            if QMessageBox.question(self, "Riavvia", "Riavviare BizHawk? Salva prima in gioco se serve.") != QMessageBox.Yes:
+            if not dialoghi.chiedi(self, "Riavviare il gioco?", "BizHawk verrà chiuso e riaperto. Prima di chiuderlo "
+                                   "l'app fa un backup del punto in cui sei.", si="Riavvia", no="Annulla"):
                 return
-            self._occupato = True
-            self.emu.ferma(alla_fine=self._avvia_richiesto.emit)
+            self._salva_e_ferma("cambio", self._avvia_richiesto.emit)
         else:
             self.assicura_gioco()
 
@@ -458,6 +477,10 @@ class Finestra(QMainWindow):
             dati["run_rom"] = self.sincro.run if Path(rom) == self.rom_attesa() else -1   # ROM di un'altra run/edizione
         else:
             dati["run_rom"] = run_della_rom(rom) if rom else -1
+        risposte = dati.pop("risposte", None)
+        if risposte:
+            self._risposte.emit(risposte)
+        self._gioco_attivo = bool(dati.get("attivo"))
         self.sincro.accoda(dati)
         righe = ["OK"]
         if self.sincro.run is not None:
@@ -476,6 +499,8 @@ class Finestra(QMainWindow):
         self.sincro.imposta_presenza(emulatore=ok)
         if ok:
             self._log("Lo script di BizHawk è collegato all'app", OK)
+            self._ultimo_backup = time.time()
+            QTimer.singleShot(1500, self._proponi_ripresa)
 
     # ================================================================ stato condiviso
     def _stato_server(self, st):
@@ -515,10 +540,12 @@ class Finestra(QMainWindow):
 
     def _fine_run(self, st):
         if st["stato"] == "vinta":
-            titolo, testo = "RUN VINTA!", f"Complimenti! {st.get('motivo', '')}\n\nVuoi iniziare una nuova run?"
+            ok = dialoghi.chiedi(self, "Run vinta! Complimenti!", f"{st.get('motivo', '')}\n\nVuoi iniziare una nuova run?",
+                                 si="Nuova run", no="Più tardi", tipo="ok")
         else:
-            titolo, testo = "GAME OVER", f"{st.get('motivo', '')}\n\nVuoi iniziare una nuova run? Verranno generate nuove ROM."
-        if QMessageBox.question(self, titolo, testo, QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
+            ok = dialoghi.chiedi(self, "Game over", f"{st.get('motivo', '')}\n\nVuoi iniziare subito una nuova run? "
+                                 "Verranno generate ROM nuove per tutti.", si="Nuova run", no="Più tardi", tipo="errore")
+        if ok:
             self._azione({"azione": "nuova_run"})
 
     def _sprite_pronti(self):
@@ -536,19 +563,20 @@ class Finestra(QMainWindow):
 
     def _nuova_run(self):
         domanda = "Abbandonare la run attuale e iniziarne una nuova?" if self.stato_run == "in_corso" else "Iniziare una nuova run?"
-        if QMessageBox.question(self, "Nuova run", domanda + "\nVerranno generate nuove ROM per tutti e due.") == QMessageBox.Yes:
+        if dialoghi.chiedi(self, "Nuova run", domanda + "\n\nVerranno generate ROM nuove per tutti i giocatori.",
+                           si="Nuova run", no="Annulla", pericolo=self.stato_run == "in_corso"):
             self._azione({"azione": "nuova_run"})
             self._log("Nuova run richiesta…")
 
     def _imposta_partenza(self):
         if not self.ponte.attivo:
-            QMessageBox.information(self, "Salvataggio di partenza", "Avvia prima il gioco: lo script deve essere collegato.")
+            dialoghi.avviso(self, "Salvataggio di partenza", "Avvia prima il gioco: lo script deve essere collegato.", "info")
             return
-        r = QMessageBox.question(self, "Salvataggio di partenza",
-                                 "Prima salva nel gioco (menu → Salva) il più vicino possibile alla Vedetta di Alisopoli, "
-                                 "PRIMA della scena in cui ricevi lo starter.\n\nFatto? Premi Sì e userò quel salvataggio "
-                                 "come partenza per le prossime run.")
-        if r == QMessageBox.Yes:
+        r = dialoghi.chiedi(self, "Usare il salvataggio attuale come partenza?",
+                            "Prima salva nel gioco (menu → Salva) il più vicino possibile alla Vedetta di Alisopoli, "
+                            "PRIMA della scena in cui ricevi lo starter.\n\nFatto? Userò quel salvataggio "
+                            "come partenza per le prossime run.", si="Sì, usalo", no="Annulla")
+        if r:
             with self._lock:
                 self._comandi_lua.append("SALVABASE")
             self._log("Chiedo allo script il salvataggio attuale…")
@@ -558,19 +586,20 @@ class Finestra(QMainWindow):
         io = self.cfg["giocatore"]
         inc = next((e for e in st.get("incontri", []) if e["g"] == io and e.get("ignorato")), None)
         if not inc:
-            QMessageBox.information(self, "Regole", "Non hai incontri ignorati.")
+            dialoghi.avviso(self, "Nessun incontro ignorato", "Non hai incontri ignorati da far contare.", "info")
             return
         motivi = {"tutorial": "tutorial", "shiny": "shiny", "doppione": "clausola doppioni", "luogo_usato": "luogo già usato"}
-        if QMessageBox.question(self, "Regole", f"Far contare l'incontro con {inc['nome_specie']} a {inc['luogo_nome']} "
-                                f"(ignorato: {motivi.get(inc['ignorato'], inc['ignorato'])})?") == QMessageBox.Yes:
+        if dialoghi.chiedi(self, "Far contare l'incontro?", f"Incontro con {inc['nome_specie']} a {inc['luogo_nome']}, "
+                           f"ignorato per: {motivi.get(inc['ignorato'], inc['ignorato'])}.", si="Fallo contare", no="Annulla"):
             self._azione({"azione": "conta_incontro", "id": inc["id"]})
 
     def _cancella_partenza(self):
         f = self.run_mgr.file_base
         if not f.exists():
-            QMessageBox.information(self, "Salvataggio di partenza", "Non c'è nessun salvataggio di partenza.")
+            dialoghi.avviso(self, "Salvataggio di partenza", "Non c'è nessun salvataggio di partenza.", "info")
             return
-        if QMessageBox.question(self, "Salvataggio di partenza", "Cancellare il salvataggio di partenza?") == QMessageBox.Yes:
+        if dialoghi.chiedi(self, "Cancellare il salvataggio di partenza?", "Le prossime run partiranno dall'inizio del gioco "
+                           "finché non ne crei uno nuovo.", si="Cancella", no="Annulla", pericolo=True):
             f.unlink()
             self._log("Salvataggio di partenza cancellato")
             self._aggiorna_locale()
@@ -628,6 +657,132 @@ class Finestra(QMainWindow):
             if not self.emu.in_esecuzione:
                 self.assicura_gioco()
 
+    # ================================================================ backup
+    def _run_in_gioco(self):
+        return run_della_rom(self.emu.rom) if self.emu.rom else None
+
+    def _chiedi_backup(self, tipo, alla_fine=None, attesa=6.0):
+        """Chiede allo script uno stato salvato + il salvataggio del gioco. alla_fine(ok) arriva sempre (anche se va male)."""
+        run = self._run_in_gioco()
+        if not (self.emu.in_esecuzione and self.ponte.attivo and run is not None):
+            if alla_fine:
+                alla_fine(False)
+            return
+        self._id_richiesta += 1
+        rid = self._id_richiesta
+        percorso = self.backup.nuovo(run, tipo)
+        self._richieste[rid] = {"tipo": tipo, "percorso": percorso, "rom": self.emu.rom, "run": run, "alla_fine": alla_fine}
+        with self._lock:
+            self._comandi_lua.append(f"BACKUP {rid} {percorso}")
+
+        def scaduto():
+            r = self._richieste.pop(rid, None)
+            if r:
+                self._log("Backup non riuscito: lo script non ha risposto", WARN)
+                if r["alla_fine"]:
+                    r["alla_fine"](False)
+        QTimer.singleShot(int(attesa * 1000), scaduto)
+
+    def _gestisci_risposte(self, risposte):
+        for x in risposte:
+            r = self._richieste.pop(x.get("id"), None)
+            if not r:
+                continue
+            if x.get("tipo") == "backup":
+                ok = bool(x.get("ok")) and self.backup.completa(r["percorso"], r["rom"])
+                if ok:
+                    self.backup.pulisci(r["run"])
+                    if r["tipo"] == "auto":
+                        self._ultimo_backup = time.time()
+                    self._log(f"Backup {TIPI_BACKUP.get(r['tipo'], r['tipo'])} salvato ({r['percorso'].name})", OK)
+                else:
+                    self._log("Backup non riuscito: BizHawk non ha scritto lo stato salvato", WARN)
+                if r["alla_fine"]:
+                    r["alla_fine"](ok)
+            elif x.get("tipo") == "caricato":
+                if x.get("ok"):
+                    self._log(f"Ripreso il backup {r['percorso'].name}", OK)
+                    self.notifiche.mostra("Ripreso da dove avevi lasciato", OK)
+                else:
+                    self._log("BizHawk non è riuscito a caricare il backup", KO)
+                    dialoghi.avviso(self, "Backup non caricato", "BizHawk non è riuscito a caricare lo stato salvato. "
+                                    "Puoi riprovare dalla finestra Backup oppure continuare dal salvataggio del gioco.", "errore")
+                if r["alla_fine"]:
+                    r["alla_fine"](bool(x.get("ok")))
+
+    def _backup_periodico(self):
+        minuti = int(self.cfg.get("backup_minuti", 10) or 0)
+        if minuti <= 0 or self._in_chiusura or self._occupato or not self._gioco_attivo:
+            return
+        if time.time() - self._ultimo_backup >= minuti * 60:
+            self._ultimo_backup = time.time()          # anche se fallisce, si riprova al giro dopo
+            self._chiedi_backup("auto")
+
+    def _carica_backup(self, b, alla_fine=None):
+        if not (self.emu.in_esecuzione and self.ponte.attivo):
+            dialoghi.avviso(self, "Gioco non avviato", "Avvia prima il gioco: lo script deve essere collegato.", "info")
+            return
+        self._id_richiesta += 1
+        rid = self._id_richiesta
+        self._richieste[rid] = {"tipo": "carica", "percorso": b["stato"], "rom": self.emu.rom, "run": self._run_in_gioco(),
+                                "alla_fine": alla_fine}
+        with self._lock:
+            self._comandi_lua.append(f"CARICA {rid} {b['stato']}")
+
+    def _ripristina_saveram(self, b):
+        """Rimette il salvataggio del gioco di un backup (BizHawk va chiuso e riaperto)."""
+        rom = self.emu.rom or self.rom_attesa()
+        dest = self.run_mgr.file_saveram(rom)
+
+        def copia():
+            try:
+                if dest.exists():
+                    shutil.copyfile(dest, dest.with_suffix(".prima_del_ripristino"))
+                shutil.copyfile(b["saveram"], dest)
+                self._log(f"Salvataggio del gioco ripristinato dal backup {b['stato'].name}", OK)
+            except OSError as e:
+                dialoghi.avviso(self, "Ripristino non riuscito", str(e), "errore")
+            self._occupato = False
+            self.pile.setCurrentIndex(0)
+            self.assicura_gioco()
+        if self.emu.in_esecuzione:
+            self._occupato = True
+            self.emu.ferma(alla_fine=lambda: self._in_gui.emit(copia))
+        else:
+            copia()
+
+    def _salva_e_ferma(self, tipo, dopo):
+        """Backup del momento attuale, poi chiusura di BizHawk (che scrive anche il salvataggio del gioco)."""
+        self._occupato = True
+        fatto = {"si": False}
+
+        def ferma(ok=False):
+            if fatto["si"]:
+                return
+            fatto["si"] = True
+            self.emu.ferma(alla_fine=lambda: self._in_gui.emit(dopo))
+        self._chiedi_backup(tipo, ferma)
+
+    def _proponi_ripresa(self):
+        """All'avvio del gioco: se l'ultima volta l'app è stata chiusa senza salvare in gioco, propone di riprendere da lì."""
+        rom, run = self.emu.rom, self._run_in_gioco()
+        if not rom or run is None or str(rom) in self._ripresa_chiesta or not self.ponte.attivo:
+            return
+        self._ripresa_chiesta.add(str(rom))
+        b = self.backup.ultimo_chiusura(run, rom)
+        if not b:
+            return
+        ora = datetime.fromtimestamp(b["quando"]).strftime("%d/%m alle %H:%M")
+        if dialoghi.chiedi(self, "Riprendere da dove avevi lasciato?",
+                           f"L'ultima volta l'app è stata chiusa il {ora}, dopo il tuo ultimo salvataggio nel gioco. "
+                           "Ho un backup di quel momento: vuoi ripartire da lì?",
+                           si="Riprendi da lì", no="Usa il salvataggio del gioco"):
+            self._carica_backup(b)
+
+    def _apri_backup(self):
+        from .finestra_backup import DialogoBackup
+        DialogoBackup(self).exec()
+
     # ================================================================ partite
     def _cambia_partita(self):
         if self.cfg.mancanti() and not self.cfg.get("supabase_url"):
@@ -643,13 +798,12 @@ class Finestra(QMainWindow):
     def _passa_a_partita(self, codice):
         self._partita_nuova = codice
         if self.emu.in_esecuzione:
-            if QMessageBox.question(self, "Cambia partita",
-                                    f"Passo alla partita «{codice}»: BizHawk verrà chiuso.\n\n"
-                                    "Hai salvato in gioco? I progressi non salvati andranno persi.") != QMessageBox.Yes:
+            if not dialoghi.chiedi(self, f"Passare alla partita «{codice}»?",
+                                   "BizHawk verrà chiuso: prima l'app fa un backup del punto in cui sei.",
+                                   si="Cambia partita", no="Annulla"):
                 return
-            self._occupato = True
-            self._stato("Chiudo BizHawk per cambiare partita…")
-            self.emu.ferma(alla_fine=self._per_cambio.emit)
+            self._stato("Faccio un backup e chiudo BizHawk per cambiare partita…")
+            self._salva_e_ferma("cambio", self._per_cambio.emit)
         else:
             self._applica_partita()
 
@@ -709,20 +863,21 @@ class Finestra(QMainWindow):
         return super().eventFilter(ogg, ev)
 
     def closeEvent(self, ev):
-        if self.emu.in_esecuzione:
-            r = QMessageBox.question(self, "Chiudi", "Chiudere anche BizHawk?\nRicordati di salvare in gioco prima.",
-                                     QMessageBox.Yes | QMessageBox.No | QMessageBox.Cancel)
-            if r == QMessageBox.Cancel:
-                ev.ignore()
+        if not self._chiusura_pronta and self.emu.in_esecuzione:
+            ev.ignore()                               # prima si salva: la finestra si chiude da sola dopo
+            if self._in_chiusura:
                 return
-            if r == QMessageBox.Yes:
-                fatto = threading.Event()
-                self._occupato = True
-                self.emu.ferma(alla_fine=fatto.set)
-                fine = time.time() + 16
-                while not fatto.is_set() and time.time() < fine:
-                    QApplication.processEvents()
-                    time.sleep(0.05)
+            self._in_chiusura = True
+            self._stato("Salvo la partita e chiudo…")
+            self.segnaposto.setText("Salvo la partita e chiudo…")
+            self.pile.setCurrentIndex(0)
+            self.setEnabled(False)
+
+            def chiudi():
+                self._chiusura_pronta = True
+                self.close()
+            self._salva_e_ferma("chiusura", chiudi)
+            return
         self.sincro.ferma()
         self.ponte.chiudi()
         ev.accept()

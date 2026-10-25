@@ -16,6 +16,7 @@ ACC, ACC2, OK, WARN, KO, ORO = "#8b6cff", "#c56cff", "#3ecf8e", "#f5b942", "#ff5
 COLORI_GIOCATORI = ["#8b6cff", "#38c6d9", "#ff7eb6", "#ffa94d"]
 
 FONT = "Inter"
+RISORSE = ""          # cartella delle risorse (per le immagini del foglio di stile)
 
 
 def alfa(col: str, a: float) -> str:
@@ -34,8 +35,9 @@ def colori_giocatori(st: dict) -> dict:
 
 def carica_font(cartella: Path) -> str:
     """Registra Inter (incluso nell'app). Se manca si usa Segoe UI."""
-    global FONT
+    global FONT, RISORSE
     from PySide6.QtGui import QFontDatabase
+    RISORSE = str(Path(cartella).parent).replace("\\", "/")
     trovato = False
     for f in sorted(Path(cartella).glob("*.ttf")):
         if QFontDatabase.addApplicationFont(str(f)) >= 0:
@@ -99,8 +101,16 @@ QPushButton::menu-indicator {{ subcontrol-position: right center; right: 7px; wi
 QLineEdit, QComboBox, QPlainTextEdit, QSpinBox {{ background: rgba(0,0,0,0.25); border: 1px solid {BORDO}; border-radius: 9px; padding: 6px 9px;
                                                selection-background-color: {ACC}; }}
 QLineEdit:focus, QComboBox:focus {{ border-color: {ACC}; }}
-QCheckBox {{ spacing: 8px; }}
-QCheckBox::indicator {{ width: 16px; height: 16px; }}
+QComboBox {{ padding-right: 28px; }}
+QComboBox::drop-down {{ border: none; width: 26px; }}
+QComboBox::down-arrow {{ image: url("{RISORSE}/freccia.png"); width: 12px; height: 12px; }}
+QComboBox QAbstractItemView {{ background: #1f2231; border: 1px solid #343850; border-radius: 8px; padding: 4px;
+                               selection-background-color: rgba(139,108,255,0.3); outline: 0; }}
+QCheckBox {{ spacing: 9px; }}
+QCheckBox::indicator {{ width: 16px; height: 16px; border: 1px solid #454a63; border-radius: 5px; background: rgba(0,0,0,0.3); }}
+QCheckBox::indicator:hover {{ border-color: {ACC}; }}
+QCheckBox::indicator:checked {{ background: {ACC}; border-color: {ACC}; image: url("{RISORSE}/spunta.png"); }}
+QCheckBox::indicator:disabled {{ border-color: #2e3244; }}
 QTabWidget::pane {{ border: none; background: transparent; top: 8px; }}
 QTabBar::tab {{ background: transparent; color: {TENUE}; padding: 7px 14px; margin-right: 4px; border-radius: 10px; font-weight: 500; }}
 QTabBar::tab:hover {{ color: {TESTO}; background: rgba(255,255,255,0.05); }}
@@ -141,7 +151,12 @@ QMenu::item {{ padding: 7px 18px 7px 14px; border-radius: 7px; }}
 QMenu::item:selected {{ background: rgba(139,108,255,0.25); }}
 QMenu::separator {{ height: 1px; background: {BORDO}; margin: 6px 8px; }}
 QMenu::indicator {{ width: 14px; height: 14px; left: 4px; }}
-QMessageBox QLabel {{ min-width: 320px; }}
+QLabel#dialogoTitolo {{ font-size: 12pt; font-weight: 700; color: {TESTO}; }}
+QLabel#dialogoTesto {{ color: #c3c6d4; font-size: 9.5pt; }}
+QPushButton#collegamento {{ background: transparent; border: none; color: #b6a4ff; padding: 2px 0; font-weight: 600; }}
+QPushButton#collegamento:hover {{ color: #d4c8ff; text-decoration: underline; }}
+QPlainTextEdit#dettagli {{ font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.5pt; color: #b9bdd0; }}
+QPushButton#pericolo:hover {{ background: rgba(255,92,108,0.28); }}
 """
 
 

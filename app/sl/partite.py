@@ -8,6 +8,7 @@ from PySide6.QtCore import QObject, QSize, Qt, Signal
 from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
+from . import dialoghi
 from .archivio import Archivio, ErroreArchivio
 from .riepilogo import Avatar, logo
 from .stile import ACC, COLORI_GIOCATORI, KO, OK, ORO, SPENTO, TENUE, TESTO, WARN, alfa, colori_giocatori
@@ -152,7 +153,7 @@ class DialogoCodice(QDialog):
     def _ok(self):
         c = self.campo.text().strip()
         if len(c) < 4:
-            QMessageBox.warning(self, "Codice", "Il codice deve avere almeno 4 caratteri.")
+            dialoghi.avviso(self, "Codice troppo corto", "Il codice deve avere almeno 4 caratteri.")
             return
         self.codice = c
         self.accept()
@@ -309,10 +310,10 @@ class DialogoPartite(QDialog):
             try:
                 r = Archivio(self.cfg.get("supabase_url"), self.cfg.get("supabase_chiave"), c).riassunto()
             except ErroreArchivio as e:
-                QMessageBox.warning(self, "Partita", f"Non riesco a controllare il codice: {e}")
+                dialoghi.avviso(self, "Non riesco a controllare il codice", str(e), "errore")
                 return
-            if r is None and QMessageBox.question(
-                    self, "Partita", f"Non esiste ancora una partita con il codice «{c}».\n\nVuoi crearla tu?") != QMessageBox.Yes:
+            if r is None and not dialoghi.chiedi(self, "Partita non trovata", f"Non esiste ancora una partita con il codice «{c}».\n\n"
+                                                 "Controlla di averlo scritto giusto, oppure creala tu.", si="Creala", no="Annulla"):
                 return
         self.stato_locale.partita(c)          # la aggiunge alla lista
         self._riempi(seleziona=c)
@@ -323,17 +324,13 @@ class DialogoPartite(QDialog):
         c = self._selezionato()
         if not c or c == self.attuale:
             return
-        m = QMessageBox(self)
-        m.setWindowTitle("Togli la partita")
-        m.setText(f"Togliere «{c}» da questa lista?\n\nLa partita online resta (gli amici possono continuare a giocarla) "
-                  f"e potrai rientrarci con il codice.")
-        b_file = m.addButton("Togli e cancella ROM e salvataggi dal PC", QMessageBox.DestructiveRole)
-        b_solo = m.addButton("Togli solo dalla lista", QMessageBox.AcceptRole)
-        m.addButton("Annulla", QMessageBox.RejectRole)
-        m.exec()
-        if m.clickedButton() not in (b_file, b_solo):
+        scelta = dialoghi.scegli(self, f"Togliere «{c}» dalla lista?",
+                                 "La partita online resta: gli amici possono continuare a giocarla e potrai rientrarci con il codice.",
+                                 [("annulla", "Annulla", None), ("file", "Togli e cancella ROM e salvataggi", "pericolo"),
+                                  ("solo", "Togli dalla lista", "primario")])
+        if scelta not in ("file", "solo"):
             return
-        if m.clickedButton() is b_file:
+        if scelta == "file":
             from .run import GestoreRun
             cfg2 = dict(self.cfg)
             cfg2["codice"] = c
@@ -341,7 +338,7 @@ class DialogoPartite(QDialog):
             try:
                 GestoreRun(cfg2).cancella_tutto(anche_partenza=False, edizioni=ed)
             except Exception as e:
-                QMessageBox.warning(self, "Partita", f"Non sono riuscito a cancellare tutti i file: {e}")
+                dialoghi.avviso(self, "Non ho cancellato tutti i file", str(e), "errore")
         self.stato_locale.togli(c)
         if (self.cfg.get("codice") or "").strip() == c:
             self.cfg["codice"] = ""

@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QGroupBox
                                QScrollArea, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
+from . import dialoghi
 from .stile import ACC, COLORI_TIPI, KO, OK, ORO, TENUE, WARN, colori_giocatori
 
 
@@ -249,7 +250,7 @@ class PannelloPercorsi(QTableWidget):
         m.exec(self.viewport().mapToGlobal(pos))
 
     def _conferma(self, domanda, dati):
-        if QMessageBox.question(self, "Soul Link", domanda) == QMessageBox.Yes:
+        if dialoghi.chiedi(self, domanda, "", si="Conferma", no="Annulla"):
             self.azione(dati)
 
 
@@ -365,7 +366,8 @@ class PannelloObiettivi(QTreeWidget):
         g = self._G[col - 1]
         fatto = bool(self._fatti.get(g, {}).get(vid))
         nome_v = it.text(0).split("   ·")[0]
-        if QMessageBox.question(self, "Obiettivi", f"{'Annullare' if fatto else 'Segnare'} «{nome_v}» per {g}?") == QMessageBox.Yes:
+        if dialoghi.chiedi(self, f"{'Annullare' if fatto else 'Segnare come fatto'} «{nome_v}» per {g}?", "",
+                           si="Annulla obiettivo" if fatto else "Segna fatto", no="Lascia stare"):
             self.azione({"azione": "obiettivo", "id": vid, "giocatore": g, "valore": not fatto})
 
 

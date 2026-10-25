@@ -8,6 +8,7 @@ from PySide6.QtWidgets import QApplication
 
 from sl.config import Config, StatoLocale
 from sl.finestra import Finestra, risorsa
+from sl.dialoghi import installa_traduzione
 from sl.partite import DialogoPartite
 from sl.stile import carica_font, foglio
 
@@ -35,6 +36,7 @@ def scegli_partita():
 def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Soul Link Tracker")
+    installa_traduzione(app)
     carica_font(risorsa("font"))
     app.setStyleSheet(foglio())
     icona = risorsa("icona.ico")

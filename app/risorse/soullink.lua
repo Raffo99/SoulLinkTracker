@@ -328,10 +328,12 @@ end
 
 -- ---------------- rete ----------------
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
+local coda_app = {}             -- risposte ai comandi dell'app (backup fatto, stato caricato)
 if APP then stato_rete.ultimo_msg = 0 end
 local function invia(dati)
   local ok, risp
   if APP then
+    if #coda_app > 0 then dati.risposte = coda_app; coda_app = {} end
     if salva_base_pendente then
       dati.salva_base = salva_base_pendente
       dati.salva_base_manuale = salva_base_manuale
@@ -368,6 +370,22 @@ local function invia(dati)
     elseif cmd == "SALVABASE" then
       pcall(client.saveram)                 -- scrive su disco l'ultimo salvataggio fatto nel gioco
       salva_base_pendente, salva_base_manuale = gameinfo.getromname() or "", true
+    elseif cmd == "BACKUP" then
+      -- backup chiesto dall'app: scrive su disco il salvataggio del gioco e fa uno stato salvato del momento
+      local id, percorso = resto:match("^(%d+)%s+(.+)$")
+      if id then
+        pcall(client.saveram)
+        local okB = pcall(savestate.save, percorso, true)
+        if not okB then okB = pcall(savestate.save, percorso) end   -- BizHawk vecchi: senza il secondo parametro
+        coda_app[#coda_app + 1] = { tipo = "backup", id = tonumber(id), ok = okB and true or false }
+      end
+    elseif cmd == "CARICA" then
+      local id, percorso = resto:match("^(%d+)%s+(.+)$")
+      if id then
+        local okC = pcall(savestate.load, percorso, true)
+        if not okC then okC = pcall(savestate.load, percorso) end
+        coda_app[#coda_app + 1] = { tipo = "caricato", id = tonumber(id), ok = okC and true or false }
+      end
     elseif cmd == "AVVISO" then
       avvisa(resto, 12)
     elseif cmd == "DIAG" then
@@ -695,7 +713,7 @@ while true do
       local att = attivita_attuale(fc)
       local fa = firma_attivita(att)
       local da_mandare = (#coda > 0) or (squadra and fs ~= ultima_firma) or (fb and fb ~= ultima_firma_box)
-                         or (APP and fa ~= ultima_attivita)
+                         or (APP and fa ~= ultima_attivita) or #coda_app > 0
       if da_mandare and not pendente_da then pendente_da = fc elseif not da_mandare then pendente_da = nil end
       -- le richieste bloccano l'emulatore per un attimo: le facciamo quando non stai premendo tasti
       -- con l'app la richiesta e' locale e istantanea: niente attese
@@ -731,6 +749,9 @@ while true do
       -- gioco non ancora caricato (titolo, nuova partita): solo contatto col server
       ultimo_invio = fc
       if invia({ attivo = false }) then gestisci_rom() end
+    elseif APP and #coda_app > 0 and fc - ultimo_invio >= 10 then
+      ultimo_invio = fc
+      invia({ attivo = A.base ~= nil })
     end
   end
   disegna(fc)

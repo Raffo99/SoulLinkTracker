@@ -39,7 +39,8 @@ PREDEFINITA = {
     "salta_inizio": True,
     "cartella_saveram": "",
     "diagnostica": False,
-    "chiedi_partita": True,          # all'avvio chiede quale partita giocare
+    "chiedi_partita": True,
+    "backup_minuti": 10,             # backup automatico (0 = mai; alla chiusura si fa sempre)          # all'avvio chiede quale partita giocare
 }
 
 

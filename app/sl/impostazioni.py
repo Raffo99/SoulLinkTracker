@@ -1,7 +1,7 @@
 """Finestra delle impostazioni (si apre da sola al primo avvio)."""
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QApplication, QCheckBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
-                               QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
+                               QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QComboBox,
                                QVBoxLayout, QWidget)
 
 
@@ -110,17 +110,32 @@ class Impostazioni(QDialog):
         f3.addRow("", self.salta)
         f3.addRow("Salvataggi di BizHawk", self.saveram)
         f3.addRow("", self.diag)
+        self.backup = QComboBox()
+        self._minuti = [0, 5, 10, 15, 20, 30, 60]
+        for m in self._minuti:
+            self.backup.addItem("mai (solo alla chiusura)" if m == 0 else f"{m} minuti")
+        attuale = int(cfg.get("backup_minuti", 10) or 0)
+        self.backup.setCurrentIndex(self._minuti.index(attuale) if attuale in self._minuti else 2)
+        self.backup.setToolTip("Ogni quanti minuti l'app fa un backup del punto in cui sei (stato salvato di BizHawk "
+                               "e copia del salvataggio del gioco). Alla chiusura lo fa sempre.")
+        f3.addRow("Backup automatico ogni", self.backup)
         v.addWidget(g3)
 
         v.addStretch()
-        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Save).setText("Salva")
-        bb.button(QDialogButtonBox.Cancel).setText("Annulla")
-        bb.accepted.connect(self._salva)
-        bb.rejected.connect(self.reject)
         riga_bb = QHBoxLayout()
         riga_bb.setContentsMargins(18, 0, 18, 0)
-        riga_bb.addWidget(bb)
+        riga_bb.setSpacing(8)
+        riga_bb.addStretch()
+        annulla = QPushButton("Annulla")
+        annulla.setMinimumWidth(92)
+        annulla.clicked.connect(self.reject)
+        salva = QPushButton("Salva")
+        salva.setObjectName("primario")
+        salva.setMinimumWidth(92)
+        salva.setDefault(True)
+        salva.clicked.connect(self._salva)
+        riga_bb.addWidget(annulla)
+        riga_bb.addWidget(salva)
         esterno.addLayout(riga_bb)
 
     @staticmethod
@@ -133,17 +148,18 @@ class Impostazioni(QDialog):
         return f
 
     def _prova(self):
+        from . import dialoghi
         from .archivio import Archivio, ErroreArchivio
         a = Archivio(self.sb_url.text(), self.sb_chiave.text(), self.codice.text())
         try:
             v = a.versione()
             p = a.presenze()
             if v is None:
-                QMessageBox.information(self, "Collegamento", "Funziona! La partita con questo codice non esiste ancora: verrà creata al primo avvio.")
+                dialoghi.avviso(self, "Collegamento riuscito", "La partita con questo codice non esiste ancora: verrà creata al primo avvio.", "ok")
             else:
-                QMessageBox.information(self, "Collegamento", f"Funziona! Partita trovata. Giocatori visti: {', '.join(p) or 'nessuno'}.")
+                dialoghi.avviso(self, "Collegamento riuscito", f"Partita trovata. Giocatori: {', '.join(p) or 'nessuno'}.", "ok")
         except ErroreArchivio as e:
-            QMessageBox.warning(self, "Collegamento", f"Non funziona:\n{e}")
+            dialoghi.avviso(self, "Il collegamento non funziona", str(e), "errore")
 
     def _salva(self):
         c = self.cfg
@@ -151,6 +167,7 @@ class Impostazioni(QDialog):
                  supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), bizhawk=self.bizhawk.text(), randomizza=True,
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
-                 salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked())
+                 salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked(),
+                 backup_minuti=self._minuti[self.backup.currentIndex()])
         c.salva()
         self.accept()

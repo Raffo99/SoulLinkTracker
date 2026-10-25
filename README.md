@@ -1,4 +1,4 @@
-# Soul Link Tracker 4.5 – Pokémon Nero 2 / Bianco 2
+# Soul Link Tracker 4.6 – Pokémon Nero 2 / Bianco 2
 
 Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzlocke **da 2 a 4 giocatori**. Le regole del Soul Link le applica l'app stessa; la partita condivisa sta in un piccolo database gratuito su **Supabase**. Niente sito, niente porte da aprire sul router, e non serve che l'altro sia acceso.
 
@@ -67,6 +67,14 @@ Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cance
 - **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (tappe e traguardi; doppio clic per correggere), Cimitero, Statistiche, Diario, Sistema (registro dell'app e diagnostica).
 
 Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
+
+## Backup e chiusura
+- **Backup automatici**: ogni 10 minuti l'app salva il punto esatto in cui sei (uno stato salvato di BizHawk) insieme a una copia del salvataggio del gioco. L'intervallo si cambia in *Impostazioni → Backup automatico ogni*.
+- **Quando chiudi con la X** l'app fa un backup del momento e poi chiude BizHawk per conto suo: non serve più rispondere a nessuna domanda. Lo stesso succede quando cambi partita o riavvii il gioco.
+- **Al prossimo avvio**, se dopo l'ultimo backup non avevi salvato nel gioco, l'app ti chiede se vuoi **riprendere da lì**.
+- **Altro → Backup e ripristino…** mostra i backup della run: puoi farne uno subito, riprendere da uno qualsiasi, rimettere solo il salvataggio del gioco di quel momento o aprire la cartella (`Documenti\SoulLink Tracker\backup\<codice>\run<N>`).
+
+Il tracker non torna indietro: se riprendi da un backup, morti e catture già registrate restano. L'app tiene gli ultimi 12 backup automatici e gli ultimi 6 fatti alla chiusura; quelli che fai tu restano (fino a 30).
 
 ## Più partite
 Puoi avere più Soul Link contemporaneamente, per esempio uno con un gruppo di amici e uno con un altro: ogni partita ha il suo **codice**.
