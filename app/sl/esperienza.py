@@ -101,6 +101,7 @@ def moltiplicatore(nemici, primo, cap, dividi=1) -> dict:
 
 # ---------- controllo dell'esperienza di ogni Pokémon battuto (level cap bloccato, Condividi ridotto, solo allenatori) ----------
 UOVO_FORTUNA = 231          # Fortunuovo: esperienza ×1,5
+MARGINE = 1.2               # con il cap bloccato si conta un'esperienza del 20% più alta di quella calcolata
 
 
 def esp_ko(base, liv_nemico, liv_mio, allenatore, fortuna=False, scambiato=False) -> float:
@@ -160,6 +161,7 @@ def controllo(nemico, riceventi, allenatore, regole, cap, n_allenatore=None, mio
             g = esp_ko(base, lv_n, lv, allenatore, r.get("strumento") == UOVO_FORTUNA,
                        mio_tid is not None and r.get("id_allenatore") not in (None, mio_tid))
             consentita = max(0, esp_per_livello(curva, cap + 1) - 1 - esp)
+            g *= MARGINE                      # meglio stare un po' sotto: il calcolo del gioco può dare qualcosa in più
             if g > 0 and consentita / g < f:
                 f = consentita / g
                 perche.append(f"cap {cap} ({r.get('soprannome') or r['pid']})")

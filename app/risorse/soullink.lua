@@ -229,6 +229,7 @@ local function e_salto(h) return (h & 0xF000) == 0xD000 and ((h >> 8) & 0xF) < 0
 
 local function cond_valido(a)
   if not a or a + 6 > 0x400000 or r32(a) ~= COND_FIRMA then return false end
+  if esp_sito and math.abs((esp_sito - a) - 0xE784) > 0x420 then return false end   -- deve stare vicino al calcolo
   local h = r16(a + 4)
   return e_salto(h) or (h == NOP and cond_orig ~= nil)
 end
@@ -240,11 +241,11 @@ local function cerca_cond()
       if r32(x) == COND_FIRMA and e_salto(r16(x + 4)) then cand[#cand + 1] = x end
     end
   end
-  if esp_sito then
-    -- vicino al calcolo dell'esperienza: nella versione USA 0xE7B4 byte prima, in quella giapponese 0xE794
+  -- solo vicino al calcolo dell'esperienza (USA e Italia 0xE774 byte prima, Giappone 0xE794) e solo quando il codice di
+  -- lotta e' in memoria: altrove lo stesso schema di istruzioni puo' appartenere ad altro codice, che non va toccato
+  if esp_sito and sito_valido(esp_sito) then
     prova_zona(esp_sito - 0xE7B4 - 0x400, esp_sito - 0xE794 + 0x400)
   end
-  if #cand == 0 then prova_zona(0x180000, 0x240000) end
   if #cand == 1 then return cand[1] end          -- solo se il punto e' unico, altrimenti meglio non toccare niente
   return nil
 end
@@ -497,6 +498,7 @@ end
 -- ---------------- rete ----------------
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
 SOLO_ALLENATORI = false         -- modalita' sperimentale: esperienza solo dagli allenatori
+DUMP_LOTTA = false              -- file dove scrivere un'istantanea della memoria durante le lotte con gli allenatori
 CONTROLLO_ESP = false           -- l'app controlla l'esperienza di ogni lotta (level cap bloccato, Condividi ridotto)
 BLOCCA_INPUT = false            -- true quando l'utente sta usando un'altra finestra
 VELOCITA = nil                  -- percentuale impostata dall'app (100 = normale)
@@ -590,6 +592,8 @@ local function invia(dati)
       local prima = CONTROLLO_ESP
       CONTROLLO_ESP = resto == "1"
       if prima and not CONTROLLO_ESP and not SOLO_ALLENATORI then ripristina_esp(); lotta.molt = nil end
+    elseif cmd == "DUMPLOTTA" then
+      DUMP_LOTTA = (resto ~= "" and resto) or false
     elseif cmd == "DUMP" then
       local okD, err = pcall(scrivi_dump, resto)
       coda_app[#coda_app + 1] = { tipo = "dump", ok = okD and true or false, errore = (not okD) and tostring(err) or nil, percorso = resto }
@@ -620,7 +624,10 @@ end
 
 local function firma_squadra(sq)
   local t = {}
-  for _, m in ipairs(sq or {}) do t[#t + 1] = string.format("%d:%d:%d:%d:%s", m.pid, m.specie, m.livello, m.ps, m.soprannome) end
+  -- anche esperienza e stato: servono all'app per il level cap bloccato e per lo stato nelle Coppie
+  for _, m in ipairs(sq or {}) do
+    t[#t + 1] = string.format("%d:%d:%d:%d:%s:%d:%d", m.pid, m.specie, m.livello, m.ps, m.soprannome, m.esperienza or 0, m.stato_alt or 0)
+  end
   return table.concat(t, ";")
 end
 local function firma_box(bx)
@@ -721,104 +728,175 @@ local function nemici_allenatore()
   return out
 end
 
--- Durante la lotta il gioco tiene per ogni Pokemon una struttura (BTL_POKEPARAM) con PS attuali, stato, PP, modifiche
--- alle statistiche e un puntatore al Pokemon vero. Una tabella di puntatori a queste strutture sta in lotta_dati.
-local function struttura_lotta(p)
-  if not p or p < 0x1000 or p + 0x140 > 0x400000 then return nil end
-  local pkm = r32(p) & 0xFFFFFF
-  if pkm < 0x1000 or pkm + 0xDC > 0x400000 then return nil end
-  local ps, ps_max = r16(p + 0x10), r16(p + 0x0E)
-  if ps_max == 0 or ps > ps_max then return nil end
-  local illusione = r32(p + 4)
-  local st1, st2 = r32(p + 0xFC), r32(p + 0x100)
-  local t = { pid = r32(pkm), ps = ps, ps_max = ps_max, stato = r32(p + 0x20) & 0xFF, pp = {}, mosse = {},
-              illusione = ((illusione >> 24) == 0x02) and r32(illusione & 0xFFFFFF) or nil,
-              stadi = { st1 & 0xFF, (st1 >> 8) & 0xFF, (st2) & 0xFF, (st1 >> 16) & 0xFF, (st1 >> 24) & 0xFF } }  -- att, dif, vel, att.sp, dif.sp
-  for i = 0, 3 do
-    t.mosse[i + 1] = r16(p + 0x104 + i * 14)
-    t.pp[i + 1] = r8(p + 0x104 + i * 14 + 2)
+-- Durante la lotta il gioco tiene per ogni Pokemon una struttura (BTL_POKEPARAM) con PS attuali (+0x10), PS massimi
+-- (+0x0E), livello (+0x18), stato (+0x20), modifiche alle statistiche (+0xFC) e mosse con PP (+0x104), come
+-- nell'Ironmon Tracker. Gli indirizzi fissi di quel tracker non valgono per la versione italiana: le strutture si cercano.
+-- Lettura veloce di un blocco di memoria come stringa (per cercare le strutture della lotta)
+local function leggi_blocco(da, n)
+  if memory.read_bytes_as_binary_string then
+    local ok, x = pcall(memory.read_bytes_as_binary_string, da, n, DOM)
+    if ok and type(x) == "string" and #x == n then return x end
   end
-  return t
-end
--- tutte le strutture raggiungibili dalla tabella, per PID (solo quelle che portano a un Pokemon della lotta)
-local function strutture_lotta(validi)
-  local per_pid, posto = {}, {}
-  if not A.lotta_dati then return per_pid, posto end
-  for off = 0, 0x1FC, 4 do
-    local v = r32(A.lotta_dati + off)
-    if (v >> 24) == 0x02 then
-      local t = struttura_lotta(v & 0xFFFFFF)
-      if t and validi[t.pid] and not per_pid[t.pid] then per_pid[t.pid] = t; posto[t.pid] = off end
+  if memory.read_bytes_as_array then
+    local ok, t = pcall(memory.read_bytes_as_array, da, n, DOM)
+    if ok and type(t) == "table" and #t >= n then
+      local parti = {}
+      for i = 1, n, 4096 do parti[#parti + 1] = string.char(table.unpack(t, i, math.min(i + 4095, n))) end
+      return table.concat(parti)
     end
   end
-  return per_pid, posto
+  return nil
+end
+local HEAP_DA, HEAP_N = 0x200000, 0x1F0000
+-- Le strutture della lotta si trovano cercando i PS di inizio lotta (PS massimi, PS attuali uno dopo l'altro, a +0x0E)
+-- e controllando il livello (+0x18) e il Pokemon a cui puntano (+0x00). Non servono indirizzi fissi della versione.
+local function cerca_strutture(bersagli)
+  local blocco = leggi_blocco(HEAP_DA, HEAP_N)
+  diag.lotta_ricerca = blocco and "si" or "lettura non disponibile"
+  if not blocco then return {} end
+  local trovate = {}
+  for _, b in ipairs(bersagli) do
+    local schema = string.pack("<I2I2", b.ps_max, b.ps)
+    local deboli, i = {}, 1
+    while true do
+      local p = string.find(blocco, schema, i, true)
+      if not p then break end
+      i = p + 1
+      local ind = HEAP_DA + p - 1
+      local base = ind - 0x0E
+      if ind % 4 == 2 and r8(base + 0x18) == b.livello then
+        local v = r32(base)
+        if (v >> 24) == 0x02 and r32(v & 0xFFFFFF) == b.pid then trovate[b.pid] = base; deboli = nil; break end
+        deboli[#deboli + 1] = base
+      end
+    end
+    if deboli and #deboli == 1 and not trovate[b.pid] then trovate[b.pid] = deboli[1] end
+  end
+  return trovate
+end
+local function valori_struttura(base, ps_max)
+  if not base or r16(base + 0x0E) ~= ps_max then return nil end
+  local ps = r16(base + 0x10)
+  if ps > ps_max then return nil end
+  local st1, st2 = r32(base + 0xFC), r32(base + 0x100)
+  local t = { ps = ps, ps_max = ps_max, stato = r32(base + 0x20) & 0xFF, pp = {}, mosse = {},
+              stadi = { st1 & 0xFF, (st1 >> 8) & 0xFF, (st2) & 0xFF, (st1 >> 16) & 0xFF, (st1 >> 24) & 0xFF } }  -- att, dif, vel, att.sp, dif.sp
+  for i = 0, 3 do
+    t.mosse[i + 1] = r16(base + 0x104 + i * 14)
+    t.pp[i + 1] = r8(base + 0x104 + i * 14 + 2)
+  end
+  for _, x in ipairs(t.stadi) do if x > 12 then t.stadi = nil; break end end    -- valori strani: meglio niente
+  return t
 end
 
 local function dettagli_lotta()
   if not lotta.attiva or not A.nemico then return nil end
-  local nemici, per_pid, validi, pk_nem = {}, {}, {}, {}
+  local fc = emu.framecount()
+  local nemici, pk_nem = {}, {}
   for i = 0, 5 do
     local pk = leggi_pkm(A.nemico + i * 0xDC, true)
     if not pk then break end
     nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps, ps_max = pk.ps_max }
-    per_pid[pk.pid] = #nemici; validi[pk.pid] = true; pk_nem[#nemici] = pk
+    pk_nem[#nemici] = pk
     if not lotta.allenatore and lotta.letto then break end      -- selvatico: uno solo
   end
-  for _, m in ipairs(squadra or {}) do validi[m.pid] = true end
-  local st, posto = strutture_lotta(validi)
-  lotta.ps_visti = lotta.ps_visti or {}
-  lotta.abilita_viste = lotta.abilita_viste or {}
-  -- chi e' in campo per l'avversario: il PID che il gioco tiene da parte, oppure i posti +0x1C/+0x20 della tabella
-  local in_campo = {}
-  local pidn = A.pid_nemico_lotta and r32(A.pid_nemico_lotta) or 0
-  if per_pid[pidn] then in_campo[per_pid[pidn]] = true end
-  for pid, off in pairs(posto) do
-    if per_pid[pid] and (off == 0x1C or off == 0x20) then in_campo[per_pid[pid]] = true end
+  -- dove stanno le strutture di lotta di ogni Pokemon (si cercano a inizio lotta, e di nuovo se ne manca qualcuno)
+  lotta.basi = lotta.basi or {}
+  local tutti = {}
+  for i, pk in pairs(pk_nem) do tutti[#tutti + 1] = { pid = pk.pid, ps_max = pk.ps_max, ps = pk.ps, livello = pk.livello, nemico = i } end
+  for _, m in ipairs(squadra or {}) do
+    if not m.uovo then tutti[#tutti + 1] = { pid = m.pid, ps_max = m.ps_max, ps = m.ps, livello = m.livello } end
   end
-  for i in pairs(in_campo) do nemici[i].in_campo = true end
-  for pid, i in pairs(per_pid) do
-    local t = st[pid]
-    if t then
-      lotta.ps_visti[i] = t.ps
-      nemici[i].stato = t.stato
+  local mancano = {}
+  for _, b in ipairs(tutti) do
+    if lotta.basi[b.pid] and not valori_struttura(lotta.basi[b.pid], b.ps_max) then lotta.basi[b.pid] = nil end
+    if not lotta.basi[b.pid] then mancano[#mancano + 1] = b end
+  end
+  if #mancano > 0 and lotta.letto and fc - (lotta.ultima_ricerca or -9999) >= 120 then
+    lotta.ultima_ricerca = fc
+    for pid, base in pairs(cerca_strutture(mancano)) do lotta.basi[pid] = base end
+  end
+  local st = {}
+  for _, b in ipairs(tutti) do
+    local v = lotta.basi[b.pid] and valori_struttura(lotta.basi[b.pid], b.ps_max)
+    if v then st[b.pid] = v end
+  end
+  -- chi e' in campo: quello che ha appena cambiato PS (o PP, per i miei); se va KO, il successivo ancora in piedi
+  lotta.prima = lotta.prima or {}
+  local function cambiato(pid, v)
+    local firma = v.ps .. ":" .. table.concat(v.pp, ",")
+    local cambio = lotta.prima[pid] ~= nil and lotta.prima[pid] ~= firma
+    lotta.prima[pid] = firma
+    return cambio
+  end
+  lotta.ps_visti = lotta.ps_visti or {}
+  for i, pk in pairs(pk_nem) do
+    local v = st[pk.pid]
+    if v then
+      nemici[i].ps, nemici[i].stato, nemici[i].stadi = v.ps, v.stato, v.stadi
+      lotta.ps_visti[i] = v.ps
+      if cambiato(pk.pid, v) and v.ps > 0 then lotta.nem_attivo = i end
+    elseif lotta.ps_visti[i] then
+      nemici[i].ps = lotta.ps_visti[i]
     end
   end
-  for i, ps in pairs(lotta.ps_visti) do if nemici[i] then nemici[i].ps = ps end end   -- PS veri di chi si e' visto
-  -- abilita' dell'avversario: si sa solo quando il gioco la mostra (e' scritta qui nel momento in cui si attiva)
+  local att = lotta.nem_attivo
+  if not att or not nemici[att] or (nemici[att].ps or 0) == 0 then
+    att = nil
+    for i = (lotta.nem_attivo or 0) + 1, #nemici do if (nemici[i].ps or 0) > 0 then att = i; break end end
+    if not att then for i = 1, #nemici do if (nemici[i].ps or 0) > 0 then att = i; break end end end
+    if not att and lotta.nem_attivo and nemici[lotta.nem_attivo] then att = lotta.nem_attivo end
+    lotta.nem_attivo = att
+  end
+  if att then nemici[att].in_campo = true end
+  -- abilita' dell'avversario: si sa solo quando il gioco la mostra
+  lotta.abilita_viste = lotta.abilita_viste or {}
   if A.abilita_vista then
-    for k, off in ipairs({ 4, 0x0C }) do
+    for _, off in ipairs({ 4, 0x0C }) do
       local ab = r16(A.abilita_vista + off)
-      if ab ~= 0 then
-        for i, pk in pairs(pk_nem) do
-          if nemici[i].in_campo and pk.abilita == ab then lotta.abilita_viste[i] = ab end
-        end
-      end
+      if ab ~= 0 and att and pk_nem[att] and pk_nem[att].abilita == ab then lotta.abilita_viste[att] = ab end
     end
   end
   for i, ab in pairs(lotta.abilita_viste) do if nemici[i] then nemici[i].abilita = ab end end
-  -- il mio Pokemon in campo e i PS / stato veri di tutta la mia squadra
-  local mio = nil
-  local pidm = A.pid_mio_lotta and r32(A.pid_mio_lotta) or 0
-  if st[pidm] and contiene(squadra, pidm) then mio = st[pidm] end
-  if not mio then
-    for pid, off in pairs(posto) do
-      if (off == 0 or off == 4) and contiene(squadra, pid) then mio = st[pid]; break end
+  -- il mio Pokemon in campo: all'inizio il primo in piedi, poi quello che cambia PS o PP
+  local vivi, mio = {}, nil
+  for _, m in ipairs(squadra or {}) do
+    local v = st[m.pid]
+    if v then
+      vivi[#vivi + 1] = { pid = m.pid, ps = v.ps, ps_max = v.ps_max, stato = v.stato }
+      if cambiato(m.pid, v) then lotta.mio_attivo = m.pid end
     end
   end
-  local vivi = {}
-  for _, m in ipairs(squadra or {}) do
-    local t = st[m.pid]
-    if t then vivi[#vivi + 1] = { pid = m.pid, ps = t.ps, ps_max = t.ps_max, stato = t.stato } end
+  local function di(pid) for _, m in ipairs(squadra or {}) do if m.pid == pid then return m end end end
+  local mp = lotta.mio_attivo
+  if mp and st[mp] and st[mp].ps == 0 then mp = nil end
+  if not mp then
+    for _, m in ipairs(squadra or {}) do
+      local ps = st[m.pid] and st[m.pid].ps or m.ps
+      if not m.uovo and ps > 0 then mp = m.pid; break end
+    end
+    lotta.mio_attivo = mp
+  end
+  if mp and st[mp] then
+    mio = { pid = mp, ps = st[mp].ps, ps_max = st[mp].ps_max, stato = st[mp].stato, pp = st[mp].pp, stadi = st[mp].stadi or { 6, 6, 6, 6, 6 } }
+  elseif mp and di(mp) then
+    local m = di(mp)
+    mio = { pid = mp, ps = m.ps, ps_max = m.ps_max, pp = m.pp, stadi = { 6, 6, 6, 6, 6 } }
   end
   diag.lotta_strutture = 0; for _ in pairs(st) do diag.lotta_strutture = diag.lotta_strutture + 1 end
-  diag.lotta_pid_nemico = string.format("%08X", pidn)
+  -- istantanea automatica della memoria a meta' della prima parte di ogni lotta con un allenatore (per la diagnosi)
+  if DUMP_LOTTA and lotta.allenatore and not lotta.dump_fatto and fc - lotta.inizio >= 420 then
+    lotta.dump_fatto = true
+    pcall(scrivi_dump, DUMP_LOTTA, true)
+  end
   return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio, squadra = vivi }
 end
 local function firma_dettagli(d)
   if not d then return "-" end
   local t = { tostring(d.allenatore), tostring(d.letto) }
   for _, n in ipairs(d.nemici) do
-    t[#t + 1] = n.specie .. ":" .. n.ps .. ":" .. tostring(n.stato) .. ":" .. tostring(n.abilita) .. (n.in_campo and "*" or "")
+    t[#t + 1] = n.specie .. ":" .. n.ps .. ":" .. tostring(n.stato) .. ":" .. tostring(n.abilita) .. ":" ..
+                (n.stadi and table.concat(n.stadi, ",") or "") .. (n.in_campo and "*" or "")
   end
   if d.mio then
     t[#t + 1] = d.mio.pid .. ":" .. d.mio.ps .. ":" .. table.concat(d.mio.pp, ",") .. ":" .. table.concat(d.mio.stadi, ",")
@@ -829,7 +907,7 @@ end
 local ultima_firma_dettagli = nil
 
 -- comando DUMP: scrive in un file di testo la memoria che serve per capire cosa non va (lotta, flag, codice dell'esperienza)
-scrivi_dump = function(percorso)
+scrivi_dump = function(percorso, senza_codice)
   local f = assert(io.open(percorso, "w"))
   local function sezione(nome, da, n)
     if not da or da < 0 or da + n > 0x400000 then f:write("#sezione " .. nome .. " assente\n"); return end
@@ -844,6 +922,7 @@ scrivi_dump = function(percorso)
   local info = { rom = CODICE_ROM, fonte = A.fonte, base = A.base, esp_sito = esp_sito, cond_sito = cond_sito,
                  solo_allenatori = SOLO_ALLENATORI, controllo = CONTROLLO_ESP, condividi = CONDIVIDI_ESP,
                  lotta_attiva = lotta.attiva, allenatore = lotta.allenatore, molt = lotta.molt, zona = diag.zona,
+                 nem_attivo = lotta.nem_attivo, mio_attivo = lotta.mio_attivo,
                  diag = diag, frame = emu.framecount() }
   f:write("#info ", json(info), "\n")
   if A.base then
@@ -866,7 +945,9 @@ scrivi_dump = function(percorso)
     sezione("flag", A.flag_evento, 0x17F)
     sezione("zona", A.zona, 0x40)
   end
-  if esp_sito then sezione("codice_esp", esp_sito - 0x6000, 0x8000) end
+  for pid, base in pairs(lotta.basi or {}) do sezione(string.format("base_%08X", pid), base, 0x140) end
+  if esp_sito and not senza_codice then sezione("codice_esp", esp_sito - 0x6000, 0x8000) end
+  if esp_sito and senza_codice then sezione("codice_esp_vicino", esp_sito - 0x40, 0x80) end
   if cond_sito then sezione("codice_condividi", cond_sito - 0x200, 0x400) end
   sezione("ram_stato_lotta", STATO_LOTTA - 0x40, 0x80)
   f:close()

@@ -242,7 +242,8 @@ def prossime(mosse: list, livello: int) -> dict:
 
 # ---------- allenatori e strumenti di ogni zona (oggetti della mappa) ----------
 PERCORSO_ENTITA = "a/1/2/6"          # Nero 2 / Bianco 2: NPC, strumenti, teletrasporti di ogni zona (CTRMap: FIELD_ZONE_ENTITIES)
-TIPO_STRUMENTO = 4                   # tipo di evento delle Poké Ball con uno strumento a terra
+TIPO_STRUMENTO = 4                   # tipo di evento delle Poké Ball con uno strumento a terra (in alcune zone)
+SCRIPT_STRUMENTI = range(7000, 8000)  # script delle Poké Ball a terra (7000 + numero dello strumento nella lista del gioco)
 
 
 def entita(rom) -> dict:
@@ -274,7 +275,7 @@ def entita(rom) -> dict:
                         break
                     sprite, _mov, tipo, flag, scr = struct.unpack_from("<HHHHH", d, p + 2)
                     npc.append((sprite, tipo, flag, scr))
-                    if tipo == TIPO_STRUMENTO:
+                    if scr in SCRIPT_STRUMENTI:
                         conta_sprite[sprite] = conta_sprite.get(sprite, 0) + 1
                     p += 0x24
             letti[idx] = {"npc": npc, "file": idx}
@@ -295,7 +296,7 @@ def per_luogo(ent: dict, luogo: int, scarto: int, n_allenatori: int) -> dict:
         if l != luogo or z not in ent["zone"]:
             continue
         for sprite, tipo, flag, scr in ent["zone"][z]["npc"]:
-            if tipo == TIPO_STRUMENTO or (sp is not None and sprite == sp and flag):
+            if tipo == TIPO_STRUMENTO or scr in SCRIPT_STRUMENTI or (sp is not None and sprite == sp and flag):
                 if flag:
                     strumenti.add(flag)
                 continue

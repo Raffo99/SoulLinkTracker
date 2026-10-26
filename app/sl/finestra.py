@@ -896,6 +896,11 @@ class Finestra(QMainWindow):
             self._log("Lo script di BizHawk è collegato all'app", OK)
             self._ultimo_backup = time.time()
             self._carica_impara()
+            from .config import cartella_documenti
+            d = cartella_documenti() / "diagnosi"
+            d.mkdir(parents=True, exist_ok=True)
+            with self._lock:
+                self._comandi_lua.append(f"DUMPLOTTA {d / 'ultima_lotta.txt'}")
             QTimer.singleShot(1500, self._proponi_ripresa)
             QTimer.singleShot(12000, self._controllo_automatico)
 
@@ -1250,7 +1255,9 @@ class Finestra(QMainWindow):
             if (n.get("ps") or 0) == 0 and i in self._esp["previsti"] and i not in self._esp["contati"]:
                 self._esp["contati"].add(i)
                 for pid, e in self._esp["previsti"][i].items():
-                    self._esp["extra"][pid] = self._esp["extra"].get(pid, 0) + e
+                    attuale = next((p.get("esperienza") or 0 for p in self._squadra_gioco if p.get("pid") == pid), 0)
+                    base, somma = self._esp["extra"].get(pid, (attuale, 0))
+                    self._esp["extra"][pid] = (base, somma + e)
         attivi = [i for i, n in enumerate(nemici) if n.get("in_campo") and (n.get("ps") or 0) > 0]
         vivi_n = [i for i, n in enumerate(nemici) if (n.get("ps") or 0) > 0]
         idx = (attivi or vivi_n or [None])[0]
@@ -1265,7 +1272,10 @@ class Finestra(QMainWindow):
             if ps <= 0:
                 continue
             q = dict(p)
-            extra = self._esp["extra"].get(p.get("pid"), 0)
+            base, extra = self._esp["extra"].get(p.get("pid"), (0, 0))
+            if extra and (p.get("esperienza") or 0) > base:   # il gioco ha già aggiornato l'esperienza: niente stime
+                self._esp["extra"].pop(p.get("pid"), None)
+                extra = 0
             if extra:
                 q["esperienza"] = (p.get("esperienza") or 0) + extra
                 curva = E.curva_di(p.get("specie"), p.get("livello") or 1, p.get("esperienza"))
@@ -1397,19 +1407,9 @@ class Finestra(QMainWindow):
             return
         cand = {sc - int(t) for sc in script}
         attuale = self.cfg.get("scarto_script_allenatori", 3000)
-        if attuale in cand:
-            if not self.cfg.get("scarto_confermato"):
-                self.cfg["scarto_confermato"] = True
-                self.cfg.salva()
-            return
-        vecchi = set(self.cfg.get("scarto_candidati") or []) or cand
-        resto = vecchi & cand or cand
-        self.cfg["scarto_candidati"] = sorted(resto)
-        if len(resto) == 1:
-            self.cfg["scarto_script_allenatori"] = next(iter(resto))
-            self._log(f"Allenatori sulla mappa: script = {next(iter(resto))} + numero dell'allenatore", OK)
-        self.cfg.salva()
-        self._aggiorna_conteggi()
+        if attuale in cand and not self.cfg.get("scarto_confermato"):
+            self.cfg["scarto_confermato"] = True              # solo una conferma: lo scarto non si cambia da solo
+            self.cfg.salva()
 
     def _flag_acceso(self, i):
         f = self._flag_evento
@@ -1530,6 +1530,10 @@ class Finestra(QMainWindow):
             z.writestr("registro.txt", "\n".join(righe))
             if dump:
                 z.write(dump, "memoria.txt")
+            from .config import cartella_documenti
+            ul = cartella_documenti() / "diagnosi" / "ultima_lotta.txt"
+            if ul.exists():
+                z.write(ul, "memoria_ultima_lotta.txt")
         return percorso
 
     def _apri_mappa(self):
@@ -1578,6 +1582,8 @@ class Finestra(QMainWindow):
                 self.sincro._presenza_subito = True
         from .scheda import SchedaPokemon
         SchedaPokemon.aggiorna_tutte()
+        if self._det_lotta:                       # l'esperienza vera è cambiata: si ricalcola quanta darne
+            self._controlla_esperienza(self._det_lotta)
 
     def _apri_pokemon(self, chiave):
         from .correzioni import DialogoPokemon

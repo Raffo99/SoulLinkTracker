@@ -1,9 +1,6 @@
-- Esperienza solo dagli allenatori: il punto del gioco da modificare ora si riconosce anche come nei codici Action Replay della versione europea/americana (non funzionava sulla vostra ROM).
-- Nuova regola sperimentale "Blocca il level cap": nessun Pokémon va oltre il cap; se un colpo lo farebbe salire di due livelli, si ferma al cap.
-- Moltiplicatore per Condividi esperienza: ×1, ×½, ×¼, ×⅛.
-- Tracker della lotta: segue l'avversario in campo anche quando l'allenatore cambia Pokémon (legge il Pokémon in campo in un altro punto della memoria). Nuova striscia dell'avversario con PS, stato e abilità, quando il gioco la mostra.
-- Coppie: stato (addormentato, scottato…) e PS di ogni Pokémon, in tempo reale durante la lotta, anche degli amici.
-- Avviso per tutti quando il Pokémon in campo di qualcuno è in pericolo (20% dei PS o meno).
-- Tappe della storia: tutti i posti dove andare per proseguire (Pokéwood, Fogne di Austropoli, Torre Cielo…), nell'ordine e col luogo, nella scheda Obiettivi, nel riquadro Prossimo obiettivo e sulla mappa.
-- Strumenti contati anche quando le Poké Ball a terra sono fatte in modo diverso; allenatori che non sono più sulla mappa non contano.
-- Altro → Crea file per la diagnosi: un .zip con quello che serve per sistemare le parti che dipendono dal gioco.
+- Tracker della lotta rifatto sulla memoria della vostra versione: trova da solo le strutture della lotta (gli indirizzi dell'Ironmon Tracker non valgono per la versione italiana). All'inizio mostra il tuo primo Pokémon in piedi e poi quello che usa una mossa; l'avversario passa al successivo quando va KO.
+- Nella striscia dell'avversario ora ci sono anche le modifiche alle statistiche (Att +1, Dif −1…).
+- Level cap bloccato: l'app usava un'esperienza vecchia dei tuoi Pokémon (la squadra non veniva rimandata quando cambiava solo l'esperienza), quindi pensava che ci fosse ancora spazio. Ora la riceve sempre e tiene un margine.
+- Strumenti: contati anche quelli fatti come nella vostra ROM (Poké Ball a terra con script 7000+), con quelli già raccolti.
+- Condividi esperienza: il punto del gioco da modificare si cerca solo vicino al calcolo dell'esperienza (a volte ne veniva preso uno sbagliato).
+- Diagnosi: durante ogni lotta con un allenatore l'app salva da sola un'istantanea della memoria, che finisce nel file per la diagnosi.

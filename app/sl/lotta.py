@@ -462,6 +462,12 @@ class CartaLotta(QFrame):
             r1.addWidget(barra, 0, Qt.AlignVCenter)
             r1.addWidget(QLabel(f"<b>{round(100 * ps / mx)}%</b>"))
         v.addLayout(r1)
+        stadi = nem.get("stadi") or []
+        mod = [(NOMI_STAT[i], stadi[i] - 6) for i in (0, 1, 3, 4, 2) if i < len(stadi) and stadi[i] not in (None, 6)]
+        if mod:
+            v.addWidget(QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>MODIFICHE</span>&nbsp; " + " &nbsp;".join(
+                f"<span style='color:{TENUE}'>{n}</span> <b style='color:{OK if d > 0 else KO}'>{'+' if d > 0 else '−'}{abs(d)}</b>"
+                for n, d in mod)))
         ab = (L._DATI.get("abilita") or {}).get(str(nem.get("abilita") or 0)) if nem.get("abilita") else None
         if ab:
             l = QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>ABILITÀ</span>&nbsp; <b>{ab[0]}</b>"
