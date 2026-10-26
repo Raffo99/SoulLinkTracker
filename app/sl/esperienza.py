@@ -97,3 +97,74 @@ def moltiplicatore(nemici, primo, cap, dividi=1) -> dict:
     validi = [n for n in candidati if livello_finale(n) <= limite] or [0]
     n = min(validi, key=lambda k: (abs(livello_finale(k) - obiettivo), k))
     return {"n": n, "obiettivo": obiettivo, "serve": serve, "normale": normale, "livello_previsto": livello_finale(n), "motivo": ""}
+
+
+# ---------- controllo dell'esperienza di ogni Pokémon battuto (level cap bloccato, Condividi ridotto, solo allenatori) ----------
+UOVO_FORTUNA = 231          # Fortunuovo: esperienza ×1,5
+
+
+def esp_ko(base, liv_nemico, liv_mio, allenatore, fortuna=False, scambiato=False) -> float:
+    """Esperienza che un Pokémon prende da solo battendo un Pokémon (formula della 5ª gen.)."""
+    a = 1.5 if allenatore else 1.0
+    rapporto = ((2 * liv_nemico + 10) / (liv_nemico + liv_mio + 10)) ** 2.5
+    e = math.floor(a * base * liv_nemico / 5 * rapporto) + 1
+    if scambiato:
+        e = math.floor(e * 1.5)
+    if fortuna:
+        e = math.floor(e * 1.5)
+    return e
+
+
+def codifica(f: float) -> int:
+    """Fattore -> codice per lo script: n >= 0 moltiplica per n, n < 0 divide per 2^(-n)."""
+    if f <= 0:
+        return 0
+    if f >= 1:
+        return min(255, int(math.floor(f)))
+    s = math.ceil(-math.log2(f) - 1e-9)
+    return 0 if s > 15 else -s
+
+
+def fattore(codice: int) -> float:
+    return codice if codice >= 0 else 1 / (2 ** -codice)
+
+
+def controllo(nemico, riceventi, allenatore, regole, cap, n_allenatore=None, mio_tid=None):
+    """Quanta esperienza far dare al prossimo Pokémon battuto.
+    nemico: {specie, livello}; riceventi: i Pokémon che prenderanno esperienza [{pid, specie, livello, esperienza, strumento,
+    id_allenatore}]. Restituisce (codice per lo script, {pid: esperienza prevista}, spiegazione)."""
+    if not nemico or not riceventi:
+        return None, {}, ""
+    base = dati_specie(nemico.get("specie"))[1]
+    lv_n = nemico.get("livello") or 1
+    f = 1.0
+    perche = []
+    if regole.get("solo_allenatori"):
+        if not allenatore:
+            return 0, {r["pid"]: 0 for r in riceventi}, "selvatico: niente esperienza"
+        f = float(n_allenatore if n_allenatore is not None else 1)
+        perche.append(f"allenatore ×{f:g}")
+    if regole.get("condividi_esp"):
+        m = float(regole.get("molt_condividi") or 1)
+        if m < 1:
+            f *= m
+            perche.append(f"Condividi ×{m:g}")
+    prev = {}
+    if regole.get("cap_bloccato") and cap:
+        for r in riceventi:
+            lv = r.get("livello") or 1
+            curva = curva_di(r.get("specie"), lv, r.get("esperienza"))
+            esp = r.get("esperienza")
+            if esp is None:
+                esp = esp_per_livello(curva, lv)
+            g = esp_ko(base, lv_n, lv, allenatore, r.get("strumento") == UOVO_FORTUNA,
+                       mio_tid is not None and r.get("id_allenatore") not in (None, mio_tid))
+            consentita = max(0, esp_per_livello(curva, cap + 1) - 1 - esp)
+            if g > 0 and consentita / g < f:
+                f = consentita / g
+                perche.append(f"cap {cap} ({r.get('soprannome') or r['pid']})")
+    c = codifica(f)
+    for r in riceventi:
+        g = esp_ko(base, lv_n, r.get("livello") or 1, allenatore, r.get("strumento") == UOVO_FORTUNA)
+        prev[r["pid"]] = math.floor(g * fattore(c)) if c >= 0 else (int(g) >> -c)
+    return c, prev, ", ".join(perche)

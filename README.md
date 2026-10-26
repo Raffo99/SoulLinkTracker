@@ -83,20 +83,22 @@ Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arriv
 ## Tracker della lotta
 Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco, grigie quando vanno KO), mai quali. Il tracker legge dalla memoria del gioco **chi è in campo**, da una parte e dall'altra, e lo segue da solo. Dall'alto in basso:
 - la tua squadra, ognuno con il miglior moltiplicatore contro l'avversario: è selezionato quello in campo, ma puoi cliccarne un altro per confrontarlo;
+- la **striscia dell'avversario**: nome, livello, tipi, PS in percentuale, stato e la sua **abilità** con la descrizione, ma solo dopo che il gioco l'ha mostrata;
 - il riquadro del tuo Pokémon: nome, tipi, stato, barra dei PS e le **statistiche in caselle** (verde quella aumentata dalla natura, rossa quella diminuita, accanto le modifiche in lotta come +1 o −2), più la natura;
 - l'**abilità** con la sua descrizione e tra quanti livelli arriva la **prossima mossa** (quale non si dice);
 - le **mosse in quattro riquadri** come nel gioco, colorati col tipo: nome **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), **stella dorata** se STAB, a destra il moltiplicatore totale (efficacia × 1,5 se STAB: superefficace + STAB = ×3), sotto categoria, potenza e PP.
 PS, PP e modifiche alle statistiche del Pokémon in campo sono in tempo reale. La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
 
-## Mappa e obiettivi
-Gli obiettivi sono solo quelli veri del gioco, nell'ordine della storia di Nero 2: rivale ad Alisopoli e alla Fattoria di Venturia, Komor, Velia, Artemisio, Camelia, Rafan, rivale al PWT, Anemone, rivale a Spiraria, Aristide, Ciprian, Acromio e Ghecis alla Fossa Gigante, rivale alla Via Vittoria, i Superquattro e Iris. Le vecchie tappe, le piccole sfide e i traguardi bonus non ci sono più.
-La **mappa di Unima** (clic sulla piccola mappa nel riquadro *Prossimo obiettivo*, o pulsante nella scheda *Obiettivi*) è uno schema disegnato dall'app, non la mappa del gioco: città e percorsi collegati, i simboli degli obiettivi (numero della medaglia per i capipalestra, R rivale, P Team Plasma, 4 Lega, ✓ fatto da tutti), un anello viola che pulsa sul tuo prossimo obiettivo e un cerchio colorato per ognuno di voi dove si trova adesso. Passa col mouse su un luogo per vedere obiettivi e giocatori lì.
+## Mappa, obiettivi e tappe della storia
+Gli obiettivi sono solo quelli veri del gioco, nell'ordine della storia di Nero 2: rivale ad Alisopoli e alla Fattoria di Venturia, Komor, Velia, Artemisio, Camelia, Rafan, rivale al PWT, Anemone, rivale a Spiraria, Aristide, Ciprian, Acromio sulla Fregata Plasma e Ghecis alla Fossa Gigante, rivale alla Via Vittoria, i Superquattro e Iris.
+In mezzo ci sono le **tappe della storia**: i posti dove bisogna andare per proseguire, per esempio il Cantiere di Zondopoli, il **Pokéwood** (il primo film serve per la nave), le Fogne di Austropoli, il Ponte Libecciopoli, la Torre Cielo, Poggiovento e il Monte Antipodi, la Grotta Costiera. Una tappa si segna da sola quando ci passi (o quando hai già battuto un obiettivo che viene dopo). La scheda *Obiettivi* mostra tutta la storia con chi ha fatto cosa; nel riquadro *Prossimo obiettivo* compare "Prima: …" quando c'è un posto da raggiungere prima della prossima lotta importante.
+La **mappa di Unima** (clic sulla piccola mappa nel riquadro *Prossimo obiettivo*, o pulsante nella scheda *Obiettivi*) è uno schema disegnato dall'app, non la mappa del gioco: città e percorsi collegati, i simboli degli obiettivi (numero della medaglia per i capipalestra, R rivale, P Team Plasma, 4 Lega, ✓ fatto da tutti), un anello viola che pulsa sul tuo prossimo obiettivo, un rombo azzurro sulla prossima tappa della storia e un cerchio colorato per ognuno di voi dove si trova adesso. Passa col mouse su un luogo per vedere obiettivi e giocatori lì.
 
 ## Allenatori e strumenti del luogo
 Nel riquadro *Dove sei* compaiono quanti allenatori ci sono ancora da battere e quanti strumenti da raccogliere, contando tutto il luogo (anche le case e gli edifici con lo stesso nome). L'app li legge dalla vostra ROM (chi c'è sulla mappa) e dalla memoria del gioco (cosa hai già raccolto). Gli strumenti sono quelli visibili nelle Poké Ball a terra, non quelli nascosti. Per gli allenatori battuti, all'inizio l'app conta le lotte vinte che ha visto in questa run; dopo un paio di lotte vinte contro allenatori capisce dove il gioco li segna e li legge direttamente da lì (anche quelli battuti prima).
 
 ## Scheda dei Pokémon
-Nelle **Coppie** clicca un Pokémon, tuo o di un amico, per aprire la sua scheda: PS ed esperienza che manca al prossimo livello, abilità, natura, statistiche con le barre, mosse (tipo, categoria, potenza, precisione, PP), quante mosse impara e tra quanti livelli la prossima, i legami. La scheda si aggiorna da sola mentre giocate. Statistiche e mosse ci sono per i Pokémon in squadra; quelle degli amici arrivano dalla loro app (servono la versione 5.3 o successiva e il gioco aperto almeno una volta). Dalla scheda, **Correggi…** apre le correzioni a mano di prima.
+Nelle **Coppie** ogni Pokémon mostra anche lo stato (addormentato, scottato, paralizzato…) e i PS, in tempo reale durante la lotta (anche quelli degli amici). Clicca un Pokémon, tuo o di un amico, per aprire la sua scheda: PS ed esperienza che manca al prossimo livello, abilità, natura, statistiche con le barre, mosse (tipo, categoria, potenza, precisione, PP), quante mosse impara e tra quanti livelli la prossima, i legami. La scheda si aggiorna da sola mentre giocate. Statistiche e mosse ci sono per i Pokémon in squadra; quelle degli amici arrivano dalla loro app (servono la versione 5.3 o successiva e il gioco aperto almeno una volta). Dalla scheda, **Correggi…** apre le correzioni a mano di prima.
 
 ## Nomi di luoghi e allenatori
 I nomi dei luoghi, a quale luogo appartiene ogni zona e i nomi degli allenatori si leggono dalla ROM, quindi sono quelli della versione italiana e non compaiono più zone con solo un numero. Perché i luoghi coincidano per tutti, usate tutti la stessa versione dell'app (l'aggiornamento automatico ci pensa da solo).
@@ -105,7 +107,8 @@ I nomi dei luoghi, a quale luogo appartiene ogni zona e i nomi degli allenatori 
 Alcune notifiche sono più grandi e restano di più:
 - quando entri in un luogo dove **devi ancora fare la cattura** (una volta per luogo; solo dove ci sono selvatici, letto dalla ROM; se ci sono solo con Surf o pesca arriva una notifica normale);
 - all'inizio di una **lotta importante** (capipalestra, rivale, Team Plasma, Lega), con il level cap e chi lo supera;
-- quando tu o un altro **battete uno degli obiettivi importanti**.
+- quando tu o un altro **battete uno degli obiettivi importanti**;
+- quando il Pokémon in campo di qualcuno (anche degli amici) è **in pericolo**, con il 20% dei PS o meno.
 Se l'app non è in primo piano, l'icona lampeggia nella barra delle applicazioni.
 
 ## Correggere il tracker
@@ -113,7 +116,7 @@ Se l'app non è in primo piano, l'icona lampeggia nella barra delle applicazioni
 - **Altro → Controlla il tracker con il gioco…** confronta i tuoi Pokémon con squadra e PC letti dalla memoria: Pokémon morti nel tracker ma vivi nel gioco, liberati che sono ricomparsi, Pokémon che non trovo più. Se dopo un backup ricaricato (o all'avvio del gioco) le cose non tornano, la finestra si apre da sola.
 
 ## Regole opzionali
-Dal menu **Regole** scegli cosa usare: tutorial, clausola doppioni, clausola shiny, **tipo primario unico in squadra** (spento finché non lo attivi), avviso del **level cap**, **Condividi esperienza** (tutta la squadra prende esperienza, anche chi non ha combattuto: si usa con o senza la modalità qui sotto) ed esperienza solo dagli allenatori.
+Dal menu **Regole** scegli cosa usare: tutorial, clausola doppioni, clausola shiny, **tipo primario unico in squadra** (spento finché non lo attivi), avviso del **level cap**, **Condividi esperienza** (tutta la squadra prende esperienza, anche chi non ha combattuto: si usa con o senza la modalità qui sotto) con il suo moltiplicatore (**Esperienza con Condividi**: ×1 normale, ×½, ×¼, ×⅛), **Blocca il level cap** ed esperienza solo dagli allenatori (queste ultime due sono sperimentali, spiegate più sotto).
 
 ## Tempo della run
 Il tempo in alto conta solo quando almeno un giocatore sta giocando: se nessuno ha il gioco aperto si ferma.
@@ -130,7 +133,15 @@ Per run senza farmare: **Regole → Esperienza solo dagli allenatori (sperimenta
 - **Allenatori**: danno quanto basta per portare il tuo **primo Pokémon** della squadra al livello del Pokémon più forte di quell'allenatore, senza mai superare il level cap. Se sei già a quel livello o sopra, niente esperienza. Se in lotta usi più Pokémon, se la dividono come sempre. Livelli, mosse nuove ed evoluzioni li gestisce il gioco normalmente.
 - All'inizio di ogni lotta con un allenatore una notifica dice quanta esperienza darà (per esempio "esperienza ×3"), senza svelare niente della sua squadra. In alto compare la scritta *EXP solo dagli allenatori*.
 
-Come funziona: come i codici Action Replay "moltiplicatore di esperienza", durante la lotta l'app cambia due istruzioni del calcolo dell'esperienza (×0 per i selvatici, ×N per gli allenatori) e a fine lotta le rimette com'erano. Le tocca solo se trova esattamente il codice atteso; la prima volta lo cerca da sola e poi si ricorda dove sta. Se nella tua versione non lo trova, te lo dice e l'esperienza resta normale.
+Come funziona: come i codici Action Replay "moltiplicatore di esperienza", durante la lotta l'app cambia due istruzioni del calcolo dell'esperienza (×0 per i selvatici, ×N per gli allenatori, oppure ÷2, ÷4… per ridurla) e a fine lotta le rimette com'erano. Le tocca solo se trova esattamente il codice atteso (riconosce sia le istruzioni prima sia quelle 4 KB prima, come nei codici delle varie versioni); la prima volta lo cerca da sola e poi si ricorda dove sta. Se nella tua versione non lo trova, te lo dice e l'esperienza resta normale.
+
+## Modalità sperimentale: level cap bloccato
+**Regole → Blocca il level cap (sperimentale)**, per tutti i giocatori: nessun Pokémon va oltre il level cap. Se un Pokémon al 12 con cap 13 battendo un avversario salirebbe al 14, si ferma al 13 (e non impara le mosse del 14); al cap non sale più. Prima di ogni Pokémon battuto l'app calcola quanta esperienza arriverebbe e la riduce quanto basta. Con Condividi esperienza la riduzione vale per tutta la squadra, quindi decide il Pokémon più vicino al cap. In alto compare la scritta *Cap bloccato*.
+
+Le tre regole sull'esperienza (cap bloccato, Condividi ridotto, solo allenatori) usano lo stesso sistema e si possono combinare. Nel registro (scheda *Sistema*) prima di ogni Pokémon battuto c'è scritto quanta esperienza darà.
+
+## Diagnosi
+Se qualcosa che dipende dal gioco non funziona (esperienza, chi è in campo, allenatori e strumenti contati male), usa **Altro → Crea file per la diagnosi…**, meglio durante o subito dopo una lotta con un allenatore, nel posto dove i numeri non tornano. L'app salva un file .zip in *Documenti\SoulLink Tracker\diagnosi* con la memoria della lotta, il codice dell'esperienza, gli allenatori e gli strumenti della zona letti dalla ROM e il registro (niente chiavi di Supabase). Mandamelo e sistemo.
 
 ## Backup e chiusura
 - **Backup automatici**: ogni 10 minuti l'app salva il punto esatto in cui sei (uno stato salvato di BizHawk) insieme a una copia del salvataggio del gioco. L'intervallo si cambia in *Impostazioni → Backup automatico ogni*.

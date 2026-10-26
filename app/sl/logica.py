@@ -49,7 +49,7 @@ OBIETTIVI = [
     {"id": "rivale4", "nome": "Rivale (Spiraria)", "tipo": "rivale", "ids": [378, 379, 380], "luogo": 42},
     {"id": "aristide", "nome": "Aristide", "tipo": "palestra", "medaglia": 7, "ids": [159], "luogo": 13},
     {"id": "ciprian", "nome": "Ciprian", "tipo": "palestra", "medaglia": 8, "ids": [160], "luogo": 119},
-    {"id": "acromio", "nome": "Acromio", "tipo": "plasma", "ids": [344], "luogo": 61},
+    {"id": "acromio", "nome": "Acromio", "tipo": "plasma", "ids": [344], "luogo": 135},
     {"id": "ghecis", "nome": "Ghecis", "tipo": "plasma", "ids": [345], "luogo": 61},
     {"id": "rivale5", "nome": "Rivale (Via Vittoria)", "tipo": "rivale", "ids": [684, 685, 686], "luogo": 134},
     {"id": "antea", "nome": "Antemia", "tipo": "lega", "ids": [38], "luogo": 44},

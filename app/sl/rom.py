@@ -246,8 +246,8 @@ TIPO_STRUMENTO = 4                   # tipo di evento delle Poké Ball con uno s
 
 
 def entita(rom) -> dict:
-    """{"zone": {zona: {"script": [script degli NPC], "strumenti": [flag delle Poké Ball a terra]}},
-        "luogo": {zona: indice del nome del luogo}}. Gli allenatori si ricavano dagli script (vedi allenatori_in)."""
+    """{"zone": {zona: {"npc": [(sprite, tipo, flag, script), ...]}}, "luogo": {zona: indice del nome del luogo},
+        "sprite_strumento": sprite delle Poké Ball a terra}."""
     rom = Path(rom)
     chiave = ("entita", str(rom), rom.stat().st_mtime, rom.stat().st_size)
     if chiave in _cache:
@@ -255,8 +255,8 @@ def entita(rom) -> dict:
     with open(rom, "rb") as f:
         mappe = _narc(_file_nds(f, PERCORSO_MAPPE))[0]
         file = _narc(_file_nds(f, PERCORSO_ENTITA))
-    zone, luogo = {}, {}
-    letti = {}
+    zone, luogo, letti = {}, {}, {}
+    conta_sprite = {}
     for zona in range(len(mappe) // 48):
         base = zona * 48
         idx = struct.unpack_from("<H", mappe, base + 0x16)[0]
@@ -265,37 +265,41 @@ def entita(rom) -> dict:
             continue
         if idx not in letti:
             d = file[idx]
-            script, strumenti = [], []
+            npc = []
             if len(d) >= 8:
                 n_mob, n_npc = d[4], d[5]
                 p = 8 + n_mob * 0x14
                 for i in range(n_npc):
                     if p + 0x24 > len(d):
                         break
-                    tipo, flag, scr = struct.unpack_from("<HHH", d, p + 6)
+                    sprite, _mov, tipo, flag, scr = struct.unpack_from("<HHHHH", d, p + 2)
+                    npc.append((sprite, tipo, flag, scr))
                     if tipo == TIPO_STRUMENTO:
-                        if flag:
-                            strumenti.append(flag)
-                    else:
-                        script.append(scr)
+                        conta_sprite[sprite] = conta_sprite.get(sprite, 0) + 1
                     p += 0x24
-            letti[idx] = {"script": script, "strumenti": strumenti}
+            letti[idx] = {"npc": npc, "file": idx}
         zone[zona] = letti[idx]
-    out = {"zone": zone, "luogo": luogo}
+    sprite_str = max(conta_sprite, key=conta_sprite.get) if conta_sprite else None
+    out = {"zone": zone, "luogo": luogo, "sprite_strumento": sprite_str}
     _metti_in_cache(chiave, out)
     return out
 
 
 def per_luogo(ent: dict, luogo: int, scarto: int, n_allenatori: int) -> dict:
-    """Allenatori (id) e strumenti (flag) di tutte le zone con quel nome di luogo; script = scarto + id allenatore."""
-    allenatori, strumenti = set(), set()
+    """Allenatori e strumenti di tutte le zone con quel nome di luogo.
+    allenatori: {id: flag di comparsa}; strumenti: [flag]. Un allenatore = NPC con script = scarto + id;
+    uno strumento = Poké Ball a terra (tipo 4 o lo sprite delle Poké Ball) con il suo flag (acceso = raccolto)."""
+    allenatori, strumenti = {}, set()
+    sp = ent.get("sprite_strumento")
     for z, l in ent["luogo"].items():
         if l != luogo or z not in ent["zone"]:
             continue
-        x = ent["zone"][z]
-        strumenti.update(x["strumenti"])
-        for s in x["script"]:
-            t = s - scarto
-            if 0 < t < n_allenatori:
-                allenatori.add(t)
-    return {"allenatori": sorted(allenatori), "strumenti": sorted(strumenti)}
+        for sprite, tipo, flag, scr in ent["zone"][z]["npc"]:
+            if tipo == TIPO_STRUMENTO or (sp is not None and sprite == sp and flag):
+                if flag:
+                    strumenti.add(flag)
+                continue
+            t = scr - scarto
+            if 0 < t < n_allenatori and t not in allenatori:
+                allenatori[t] = flag
+    return {"allenatori": allenatori, "strumenti": sorted(strumenti)}

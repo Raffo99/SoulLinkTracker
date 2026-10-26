@@ -116,6 +116,24 @@ def stato_alterato(v):
     return "", ""
 
 
+# stato in lotta (struttura di lotta del gioco): 1 paralisi, 2 sonno, 3 congelamento, 4 scottatura, 5 veleno
+_STATI_LOTTA = {1: ("PAR", "#f7d02c"), 2: ("SON", "#9aa0b8"), 3: ("CON", "#7fd1ff"), 4: ("SCO", "#ff8a4c"),
+                5: ("VEL", "#c27cff"), 6: ("IPV", "#c27cff")}
+NOMI_STATI = {"PAR": "paralizzato", "SON": "addormentato", "CON": "congelato", "SCO": "scottato", "VEL": "avvelenato",
+              "IPV": "gravemente avvelenato"}
+
+
+def stato_lotta(v):
+    return _STATI_LOTTA.get(v or 0, ("", ""))
+
+
+def stato_di(p):
+    """Stato attuale di un Pokémon: quello della lotta se c'è, altrimenti quello della squadra."""
+    if p.get("stato_lotta") is not None:
+        return stato_lotta(p.get("stato_lotta"))
+    return stato_alterato(p.get("stato_alt"))
+
+
 def efficacia(tipo_mossa, tipi_difesa) -> float:
     m = 1.0
     for t in tipi_difesa or []:
@@ -329,10 +347,9 @@ class CartaLotta(QFrame):
             palle.setContentsMargins(8, 0, 0, 0)
             testa.addWidget(box)
         testa.addStretch()
-        if nem:
-            testa.addWidget(QLabel(f"<span style='color:{TENUE}'>contro</span> <b>{L.info(nem['specie'])['nome']}</b> "
-                                   f"<span style='color:{TENUE}'>Lv.{nem['livello']}</span>"))
         self.v.addLayout(testa)
+        if nem:
+            self.v.addWidget(self._striscia_nemico(nem))
         if not nem:
             self.v.addWidget(QLabel(f"<span style='color:{TENUE}'>Leggo l'avversario…</span>"))
             self.v.addStretch()
@@ -399,6 +416,62 @@ class CartaLotta(QFrame):
         nota.setWordWrap(True)
         self.v.addWidget(nota)
         self.v.addStretch()
+
+    def _striscia_nemico(self, nem):
+        """Il Pokémon avversario in campo: quello che si vede anche nel gioco (nome, livello, PS, stato) e l'abilità
+        solo se il gioco l'ha già mostrata."""
+        info = L.info(nem["specie"])
+        tipi = tipi_di(nem["specie"])
+        tc = COLORI_TIPI.get(tipi[0] if tipi else "", "#888888")
+        box = QFrame()
+        box.setObjectName("striscia")
+        box.setStyleSheet(f"QFrame#striscia {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(KO, 0.14)},"
+                          f" stop:1 rgba(255,255,255,0.02)); border: 1px solid {alfa(KO, 0.30)}; border-radius: 12px; }}")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(8, 6, 12, 6)
+        h.setSpacing(10)
+        img = QLabel()
+        img.setFixedSize(46, 46)
+        img.setAlignment(Qt.AlignCenter)
+        img.setStyleSheet(f"background: {alfa(tc, 0.18)}; border-radius: 23px;")
+        pm = self.sprite.pixmap(nem["specie"], 42) if self.sprite else None
+        if pm:
+            img.setPixmap(pm)
+        h.addWidget(img)
+        v = QVBoxLayout()
+        v.setSpacing(4)
+        st, cst = stato_lotta(nem.get("stato"))
+        r1 = QHBoxLayout()
+        r1.setSpacing(8)
+        r1.addWidget(QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>AVVERSARIO</span>&nbsp; "
+                            f"<b style='font-size:11pt'>{info['nome']}</b> <span style='color:{TENUE}'>Lv.{nem.get('livello')}</span>"
+                            f"&nbsp; {' '.join(pillola_tipo(x) for x in tipi)}"
+                            + (f"&nbsp; <b style='color:{cst};font-size:8pt'>{st}</b>" if st else "")))
+        r1.addStretch()
+        ps, mx = nem.get("ps") or 0, nem.get("ps_max") or 0
+        if mx:
+            barra = QProgressBar()
+            barra.setTextVisible(False)
+            barra.setFixedSize(110, 7)
+            barra.setRange(0, mx)
+            barra.setValue(min(ps, mx))
+            perc = ps / mx
+            cb = OK if perc > 0.5 else WARN if perc > 0.2 else KO
+            barra.setStyleSheet(f"QProgressBar{{background:rgba(255,255,255,0.07);border:none;border-radius:3px;}}"
+                                f"QProgressBar::chunk{{background:{cb};border-radius:3px;}}")
+            r1.addWidget(barra, 0, Qt.AlignVCenter)
+            r1.addWidget(QLabel(f"<b>{round(100 * ps / mx)}%</b>"))
+        v.addLayout(r1)
+        ab = (L._DATI.get("abilita") or {}).get(str(nem.get("abilita") or 0)) if nem.get("abilita") else None
+        if ab:
+            l = QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>ABILITÀ</span>&nbsp; <b>{ab[0]}</b>"
+                       + (f" <span style='color:{TENUE};font-size:8.5pt'>— {ab[1]}</span>" if ab[1] else ""))
+        else:
+            l = QLabel(f"<span style='color:{SPENTO};font-size:8.5pt'>Abilità ancora sconosciuta: si vede quando si attiva</span>")
+        l.setWordWrap(True)
+        v.addWidget(l)
+        h.addLayout(v, 1)
+        return box
 
     def _riquadro_mio(self, mio, tipi_mio, live):
         box = QFrame()

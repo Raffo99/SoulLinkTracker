@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel
 
 from . import logica as L
 from .correzioni import COLORE_STATO, STATI
-from .lotta import NOMI_STAT_LUNGHI, html_impara, mossa, natura, pillola_tipo, stato_alterato
+from .lotta import NOMI_STAT_LUNGHI, html_impara, mossa, natura, pillola_tipo, stato_di
 from .riepilogo import nome
 from .stile import ACC, COLORI_TIPI, KO, OK, ORO, SPENTO, TENUE, TESTO, WARN, alfa
 
@@ -134,7 +134,7 @@ class SchedaPokemon(QDialog):
         v.addWidget(QLabel(riga))
         if d:
             ps, mx = d.get("ps") or 0, d.get("ps_max") or 0
-            st, cst = stato_alterato(d.get("stato_alt"))
+            st, cst = stato_di(d)
             barra = QHBoxLayout()
             barra.setSpacing(8)
             pb = QProgressBar()

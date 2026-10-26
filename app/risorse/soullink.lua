@@ -56,6 +56,8 @@ end
 -- ---------------- memoria ----------------
 local DOM = "Main RAM"
 local coda_app = {}             -- risposte ai comandi dell'app (backup fatto, stato caricato, esperienza)
+local diag = {}                 -- dati per la diagnostica
+local scrivi_dump               -- definita piu' avanti (comando DUMP dell'app)
 local lotta = { attiva = false } -- lotta in corso (usata anche dai comandi dell'app e dall'esperienza)
 local salva_calibrazione        -- definita piu' avanti
 local function r8(a)  return memory.read_u8(a, DOM) end
@@ -76,6 +78,8 @@ local OFF = {
   conta_squadra = 0x19724, squadra = 0x19728, zona = 0x41B5C, zona_padre = 0x41B44,
   allenatore_nemico = 0x5262E, nemico = 0x53B70, medaglie = 0x21A24,
   lotta_dati = 0x526A8,     -- puntatori ai Pokemon in campo durante la lotta (BTL_POKEPARAM), dall'Ironmon Tracker
+  pid_mio_lotta = 0x91BD0, pid_nemico_lotta = 0x91C2C,   -- PID dei Pokemon in campo (Ironmon Tracker)
+  abilita_vista = 0x90104,  -- abilita' appena attivata, una ogni 8 byte per posto (giocatore, avversario...)
   flag_evento = 0x19724 - 0x18E04 + 0x1FF00 + 0x35E,   -- flag degli eventi (blocco EventWork del salvataggio, PKHeX)
   box = 0x19724 - 0x18E04 + 0x400,   -- il PC in RAM ha la stessa disposizione del salvataggio
   medicine = 0x19724 - 0x18E04 + 0x18BD8,   -- tasca Medicine della borsa (salvataggio 0x18400 + 0x7D8, 48 posti)
@@ -132,6 +136,7 @@ local function leggi_pkm(addr, con_lotta)
     pk.stato_alt = bat[0x88] & 0xFF
     pk.abilita = b("A", 0x0C) >> 8
     pk.natura = (b("B", 0x18) >> 8) & 0xFF
+    pk.strumento = b("A", 2)
   end
   return pk
 end
@@ -143,27 +148,35 @@ end
 -- N scelto dall'app per gli allenatori. Il codice si tocca solo durante la lotta e solo se e' quello atteso.
 local function w16(a, v) memory.write_u16_le(a, v & 0xFFFF, DOM) end
 local ESP_ORIGINALE, ESP_FIRMA = 0x0C040400, 0x68424805          -- istruzioni originali e controllo 0x1000 byte prima
+local ESP_PRIMA = 0x18080C09                                    -- le due istruzioni subito prima (lsrs r1,r1,#16 / adds r0,r1,r0)
 local esp_sito = nil                                            -- indirizzo trovato (relativo alla RAM)
 
+-- il punto e' modificato da noi? "movs r4,#N / muls r4,r0" (moltiplica) oppure "lsrs r4,r0,#S / movs r4,r4" (divide per 2^S)
+local function esp_modificato(v)
+  return ((v >> 16) == 0x4344 and (v & 0xFF00) == 0x2400) or ((v >> 16) == 0x0024 and (v & 0xF83F) == 0x0804)
+end
 local function sito_valido(a)
   if not a or a < 0x1000 or a + 4 > 0x400000 then return false end
-  if r32(a - 0x1000) ~= ESP_FIRMA then return false end
+  if r32(a - 0x1000) ~= ESP_FIRMA and r32(a - 4) ~= ESP_PRIMA then return false end
   local v = r32(a)
-  return v == ESP_ORIGINALE or (v >> 16) == 0x4344 and ((v & 0xFF00) == 0x2400)
+  return v == ESP_ORIGINALE or esp_modificato(v)
+end
+local function sito_candidato(a)
+  return r32(a) == ESP_ORIGINALE and (r32(a - 4) == ESP_PRIMA or r32(a - 0x1000) == ESP_FIRMA)
 end
 
 local function cerca_sito_esp()
   -- prima gli indirizzi noti (USA, Giappone) e quello salvato, poi una ricerca nella zona del codice di lotta
-  for _, a in ipairs({ esp_sito or 0, 0x1BD738, 0x1BD0F8, 0x1BD6F8 }) do
+  for _, a in ipairs({ esp_sito or 0, 0x1BD6F8, 0x1BD738, 0x1BD0F8, 0x1BD0D8 }) do
     if sito_valido(a) then return a end
   end
   -- prima vicino agli indirizzi noti (veloce), poi in tutta la zona solo se serve davvero a una regola attiva
-  for a = 0x1B4000, 0x1C8000, 4 do
-    if r32(a) == ESP_ORIGINALE and r32(a - 0x1000) == ESP_FIRMA then return a end
+  for a = 0x1B4000, 0x1C8000, 2 do
+    if sito_candidato(a) then return a end
   end
-  if not (SOLO_ALLENATORI or CONDIVIDI_ESP) then return nil end
-  for a = 0x180000, 0x240000, 4 do
-    if (a < 0x1B4000 or a > 0x1C8000) and r32(a) == ESP_ORIGINALE and r32(a - 0x1000) == ESP_FIRMA then return a end
+  if not (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP) then return nil end
+  for a = 0x100000, 0x280000, 2 do
+    if (a < 0x1B4000 or a > 0x1C8000) and sito_candidato(a) then return a end
   end
   return nil
 end
@@ -175,11 +188,12 @@ local function assicura_sito_esp()
   if esp_sito and sito_valido(esp_sito) then return true end
   if lotta.esp_cercato then return false end     -- una ricerca sola per lotta (e' lenta)
   lotta.esp_cercato = true
-  if not esp_sito and esp_ricerche_fallite >= 3 and not (SOLO_ALLENATORI or CONDIVIDI_ESP) then return false end
+  if not esp_sito and esp_ricerche_fallite >= 3 and not (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP) then return false end
   local trovato = cerca_sito_esp()
   if trovato then esp_sito = trovato elseif not esp_sito then esp_ricerche_fallite = esp_ricerche_fallite + 1 end
   local esito = trovato and ("si" .. trovato) or "no"
-  if esito ~= esp_segnalato and (trovato or (esp_segnalato == nil and (SOLO_ALLENATORI or CONDIVIDI_ESP))) then
+  diag.esp_ricerca = esito
+  if esito ~= esp_segnalato and (trovato or (esp_segnalato == nil and (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP))) then
     esp_segnalato = esito
     coda_app[#coda_app + 1] = { tipo = "esp_sito", ok = trovato ~= nil, indirizzo = trovato }
     if trovato then salva_calibrazione() end
@@ -187,12 +201,22 @@ local function assicura_sito_esp()
   return trovato ~= nil
 end
 
+-- n >= 0: esperienza moltiplicata per n; n < 0: esperienza divisa per 2^(-n)
+local function codifica_esp(n)
+  n = math.floor(n or 1)
+  if n < 0 then
+    local sh = math.min(31, -n)
+    return (0x0024 << 16) | (0x0804 | (sh << 6))
+  end
+  return (0x4344 << 16) | 0x2400 | math.min(255, n)
+end
 local function applica_esp(n)
   if not assicura_sito_esp() then return false end
-  n = math.max(0, math.min(255, n or 1))
-  if r32(esp_sito) ~= ((0x4344 << 16) | 0x2400 | n) then
-    w16(esp_sito, 0x2400 | n); w16(esp_sito + 2, 0x4344)
+  local v = codifica_esp(n)
+  if r32(esp_sito) ~= v then
+    w16(esp_sito, v & 0xFFFF); w16(esp_sito + 2, v >> 16)
   end
+  diag.esp_applicato = n
   return true
 end
 
@@ -218,7 +242,7 @@ local function cerca_cond()
   end
   if esp_sito then
     -- vicino al calcolo dell'esperienza: nella versione USA 0xE7B4 byte prima, in quella giapponese 0xE794
-    prova_zona(esp_sito - 0xE7B4 - 0x100, esp_sito - 0xE794 + 0x100)
+    prova_zona(esp_sito - 0xE7B4 - 0x400, esp_sito - 0xE794 + 0x400)
   end
   if #cand == 0 then prova_zona(0x180000, 0x240000) end
   if #cand == 1 then return cand[1] end          -- solo se il punto e' unico, altrimenti meglio non toccare niente
@@ -473,6 +497,7 @@ end
 -- ---------------- rete ----------------
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
 SOLO_ALLENATORI = false         -- modalita' sperimentale: esperienza solo dagli allenatori
+CONTROLLO_ESP = false           -- l'app controlla l'esperienza di ogni lotta (level cap bloccato, Condividi ridotto)
 BLOCCA_INPUT = false            -- true quando l'utente sta usando un'altra finestra
 VELOCITA = nil                  -- percentuale impostata dall'app (100 = normale)
 CONDIVIDI_ESP = false           -- regola opzionale: Condividi esperienza per tutta la squadra
@@ -550,13 +575,24 @@ local function invia(dati)
     elseif cmd == "MODO" then
       local prima = SOLO_ALLENATORI
       SOLO_ALLENATORI = resto:match("^(%S+)") == "allenatori"
-      if prima and not SOLO_ALLENATORI then ripristina_esp(); lotta.molt = nil end
+      if prima and not SOLO_ALLENATORI and not CONTROLLO_ESP then ripristina_esp(); lotta.molt = nil end
     elseif cmd == "ESP" then
       -- moltiplicatore per la lotta con l'allenatore in corso (risposta dell'app)
-      local all, n = resto:match("^(%d+)%s+(%d+)")
+      local all, n = resto:match("^(%d+)%s+(-?%d+)")
       if lotta.attiva and lotta.allenatore == tonumber(all) and SOLO_ALLENATORI then
         lotta.molt = tonumber(n); applica_esp(lotta.molt)
       end
+    elseif cmd == "ESPX" then
+      -- esperienza per il prossimo Pokemon battuto, calcolata dall'app (cap bloccato, Condividi ridotto, solo allenatori)
+      local n = tonumber(resto:match("^(-?%d+)"))
+      if n and lotta.attiva and (SOLO_ALLENATORI or CONTROLLO_ESP) then lotta.molt = n; applica_esp(n) end
+    elseif cmd == "CONTROLLO" then
+      local prima = CONTROLLO_ESP
+      CONTROLLO_ESP = resto == "1"
+      if prima and not CONTROLLO_ESP and not SOLO_ALLENATORI then ripristina_esp(); lotta.molt = nil end
+    elseif cmd == "DUMP" then
+      local okD, err = pcall(scrivi_dump, resto)
+      coda_app[#coda_app + 1] = { tipo = "dump", ok = okD and true or false, errore = (not okD) and tostring(err) or nil, percorso = resto }
     elseif cmd == "ERR" then
       stato_rete.errore = resto; avvisa("Server: " .. resto, 10)
     end
@@ -571,7 +607,6 @@ local controllo_cattura = nil   -- {pid, fino_a, era_piena}
 local ultima_firma, ultima_firma_box = nil, nil
 local ultimo_invio, ultimo_controllo_box = -99999, -99999
 local squadra, box, box_ok = nil, nil, false
-local diag = {}
 local tentata_rom = {}
 local ultimo_input, pendente_da = 0, nil
 local n_squadra_prima = nil
@@ -686,20 +721,18 @@ local function nemici_allenatore()
   return out
 end
 
--- Pokemon in campo durante la lotta: il gioco tiene un puntatore per ogni posto (giocatore +0, +4; avversario +0x1C, +0x20)
--- a una struttura con PS attuali, PP, modifiche alle statistiche e un puntatore al Pokemon vero.
-local function in_campo(off)
-  if not A.lotta_dati then return nil end
-  local p = r32(A.lotta_dati + off) & 0xFFFFFF
-  if p < 0x1000 or p + 0x140 > 0x400000 then return nil end
-  local illusione = r32(p + 4) & 0xFFFFFF          -- Illusione (Zoroark): si mostra quello che il gioco fa vedere
+-- Durante la lotta il gioco tiene per ogni Pokemon una struttura (BTL_POKEPARAM) con PS attuali, stato, PP, modifiche
+-- alle statistiche e un puntatore al Pokemon vero. Una tabella di puntatori a queste strutture sta in lotta_dati.
+local function struttura_lotta(p)
+  if not p or p < 0x1000 or p + 0x140 > 0x400000 then return nil end
   local pkm = r32(p) & 0xFFFFFF
-  if illusione >= 0x1000 and illusione < 0x400000 then pkm = illusione end
   if pkm < 0x1000 or pkm + 0xDC > 0x400000 then return nil end
   local ps, ps_max = r16(p + 0x10), r16(p + 0x0E)
   if ps_max == 0 or ps > ps_max then return nil end
+  local illusione = r32(p + 4)
   local st1, st2 = r32(p + 0xFC), r32(p + 0x100)
-  local t = { pid = r32(pkm), ps = ps, ps_max = ps_max, pp = {}, mosse = {},
+  local t = { pid = r32(pkm), ps = ps, ps_max = ps_max, stato = r32(p + 0x20) & 0xFF, pp = {}, mosse = {},
+              illusione = ((illusione >> 24) == 0x02) and r32(illusione & 0xFFFFFF) or nil,
               stadi = { st1 & 0xFF, (st1 >> 8) & 0xFF, (st2) & 0xFF, (st1 >> 16) & 0xFF, (st1 >> 24) & 0xFF } }  -- att, dif, vel, att.sp, dif.sp
   for i = 0, 3 do
     t.mosse[i + 1] = r16(p + 0x104 + i * 14)
@@ -707,45 +740,137 @@ local function in_campo(off)
   end
   return t
 end
+-- tutte le strutture raggiungibili dalla tabella, per PID (solo quelle che portano a un Pokemon della lotta)
+local function strutture_lotta(validi)
+  local per_pid, posto = {}, {}
+  if not A.lotta_dati then return per_pid, posto end
+  for off = 0, 0x1FC, 4 do
+    local v = r32(A.lotta_dati + off)
+    if (v >> 24) == 0x02 then
+      local t = struttura_lotta(v & 0xFFFFFF)
+      if t and validi[t.pid] and not per_pid[t.pid] then per_pid[t.pid] = t; posto[t.pid] = off end
+    end
+  end
+  return per_pid, posto
+end
 
 local function dettagli_lotta()
   if not lotta.attiva or not A.nemico then return nil end
-  local nemici, per_pid = {}, {}
+  local nemici, per_pid, validi, pk_nem = {}, {}, {}, {}
   for i = 0, 5 do
     local pk = leggi_pkm(A.nemico + i * 0xDC, true)
     if not pk then break end
-    nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps }
-    per_pid[pk.pid] = #nemici
+    nemici[#nemici + 1] = { specie = pk.specie, livello = pk.livello, ps = pk.ps, ps_max = pk.ps_max }
+    per_pid[pk.pid] = #nemici; validi[pk.pid] = true; pk_nem[#nemici] = pk
     if not lotta.allenatore and lotta.letto then break end      -- selvatico: uno solo
   end
-  -- chi e' in campo adesso (solo se il puntatore porta davvero a uno dei Pokemon della lotta)
+  for _, m in ipairs(squadra or {}) do validi[m.pid] = true end
+  local st, posto = strutture_lotta(validi)
   lotta.ps_visti = lotta.ps_visti or {}
-  for _, off in ipairs({ 0x1C, 0x20 }) do
-    local c = in_campo(off)
-    local i = c and per_pid[c.pid]
-    if i then
-      nemici[i].in_campo = true
-      lotta.ps_visti[i] = c.ps
+  lotta.abilita_viste = lotta.abilita_viste or {}
+  -- chi e' in campo per l'avversario: il PID che il gioco tiene da parte, oppure i posti +0x1C/+0x20 della tabella
+  local in_campo = {}
+  local pidn = A.pid_nemico_lotta and r32(A.pid_nemico_lotta) or 0
+  if per_pid[pidn] then in_campo[per_pid[pidn]] = true end
+  for pid, off in pairs(posto) do
+    if per_pid[pid] and (off == 0x1C or off == 0x20) then in_campo[per_pid[pid]] = true end
+  end
+  for i in pairs(in_campo) do nemici[i].in_campo = true end
+  for pid, i in pairs(per_pid) do
+    local t = st[pid]
+    if t then
+      lotta.ps_visti[i] = t.ps
+      nemici[i].stato = t.stato
     end
   end
   for i, ps in pairs(lotta.ps_visti) do if nemici[i] then nemici[i].ps = ps end end   -- PS veri di chi si e' visto
-  local mio = nil
-  for _, off in ipairs({ 0x00, 0x04 }) do
-    local c = in_campo(off)
-    if c and contiene(squadra, c.pid) then mio = c; break end
+  -- abilita' dell'avversario: si sa solo quando il gioco la mostra (e' scritta qui nel momento in cui si attiva)
+  if A.abilita_vista then
+    for k, off in ipairs({ 4, 0x0C }) do
+      local ab = r16(A.abilita_vista + off)
+      if ab ~= 0 then
+        for i, pk in pairs(pk_nem) do
+          if nemici[i].in_campo and pk.abilita == ab then lotta.abilita_viste[i] = ab end
+        end
+      end
+    end
   end
-  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio }
+  for i, ab in pairs(lotta.abilita_viste) do if nemici[i] then nemici[i].abilita = ab end end
+  -- il mio Pokemon in campo e i PS / stato veri di tutta la mia squadra
+  local mio = nil
+  local pidm = A.pid_mio_lotta and r32(A.pid_mio_lotta) or 0
+  if st[pidm] and contiene(squadra, pidm) then mio = st[pidm] end
+  if not mio then
+    for pid, off in pairs(posto) do
+      if (off == 0 or off == 4) and contiene(squadra, pid) then mio = st[pid]; break end
+    end
+  end
+  local vivi = {}
+  for _, m in ipairs(squadra or {}) do
+    local t = st[m.pid]
+    if t then vivi[#vivi + 1] = { pid = m.pid, ps = t.ps, ps_max = t.ps_max, stato = t.stato } end
+  end
+  diag.lotta_strutture = 0; for _ in pairs(st) do diag.lotta_strutture = diag.lotta_strutture + 1 end
+  diag.lotta_pid_nemico = string.format("%08X", pidn)
+  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio, squadra = vivi }
 end
 local function firma_dettagli(d)
   if not d then return "-" end
   local t = { tostring(d.allenatore), tostring(d.letto) }
-  for _, n in ipairs(d.nemici) do t[#t + 1] = n.specie .. ":" .. n.ps .. (n.in_campo and "*" or "") end
+  for _, n in ipairs(d.nemici) do
+    t[#t + 1] = n.specie .. ":" .. n.ps .. ":" .. tostring(n.stato) .. ":" .. tostring(n.abilita) .. (n.in_campo and "*" or "")
+  end
   if d.mio then
     t[#t + 1] = d.mio.pid .. ":" .. d.mio.ps .. ":" .. table.concat(d.mio.pp, ",") .. ":" .. table.concat(d.mio.stadi, ",")
   end
+  for _, m in ipairs(d.squadra or {}) do t[#t + 1] = m.pid .. "/" .. m.ps .. "/" .. m.stato end
   return table.concat(t, ";")
 end
 local ultima_firma_dettagli = nil
+
+-- comando DUMP: scrive in un file di testo la memoria che serve per capire cosa non va (lotta, flag, codice dell'esperienza)
+scrivi_dump = function(percorso)
+  local f = assert(io.open(percorso, "w"))
+  local function sezione(nome, da, n)
+    if not da or da < 0 or da + n > 0x400000 then f:write("#sezione " .. nome .. " assente\n"); return end
+    f:write(string.format("#sezione %s 0x%06X %d\n", nome, da, n))
+    local riga = {}
+    for i = 0, n - 1 do
+      riga[#riga + 1] = string.format("%02x", r8(da + i))
+      if #riga == 32 then f:write(table.concat(riga), "\n"); riga = {} end
+    end
+    if #riga > 0 then f:write(table.concat(riga), "\n") end
+  end
+  local info = { rom = CODICE_ROM, fonte = A.fonte, base = A.base, esp_sito = esp_sito, cond_sito = cond_sito,
+                 solo_allenatori = SOLO_ALLENATORI, controllo = CONTROLLO_ESP, condividi = CONDIVIDI_ESP,
+                 lotta_attiva = lotta.attiva, allenatore = lotta.allenatore, molt = lotta.molt, zona = diag.zona,
+                 diag = diag, frame = emu.framecount() }
+  f:write("#info ", json(info), "\n")
+  if A.base then
+    sezione("lotta_dati", A.lotta_dati, 0x200)
+    local n = 0
+    for off = 0, 0x1FC, 4 do
+      local v = r32(A.lotta_dati + off)
+      if (v >> 24) == 0x02 and n < 24 then
+        n = n + 1
+        sezione(string.format("struttura+%03X", off), v & 0xFFFFFF, 0x140)
+        local pk = r32((v & 0xFFFFFF)) 
+        if (pk >> 24) == 0x02 then sezione(string.format("pkm+%03X", off), pk & 0xFFFFFF, 0x10) end
+      end
+    end
+    sezione("pid_lotta", A.pid_mio_lotta, 0x80)
+    sezione("pid_nemico", A.pid_nemico_lotta, 0x20)
+    sezione("abilita_vista", A.abilita_vista, 0x40)
+    sezione("nemici", A.nemico, 0xDC * 6)
+    sezione("squadra", A.squadra, 0xDC * 6)
+    sezione("flag", A.flag_evento, 0x17F)
+    sezione("zona", A.zona, 0x40)
+  end
+  if esp_sito then sezione("codice_esp", esp_sito - 0x6000, 0x8000) end
+  if cond_sito then sezione("codice_condividi", cond_sito - 0x200, 0x400) end
+  sezione("ram_stato_lotta", STATO_LOTTA - 0x40, 0x80)
+  f:close()
+end
 
 -- flag degli eventi del gioco (strumenti raccolti, allenatori battuti...): 0x17F byte
 local N_FLAG = 0x17F
@@ -766,6 +891,7 @@ local function flag_in_testo(t)
   return table.concat(h)
 end
 local ultima_flag = nil
+local ultima_lettura_flag, flag_letti = nil, nil
 local controllo_flag = nil       -- dopo una lotta vinta: quali flag si sono accesi (per capire dove il gioco segna gli allenatori)
 
 local function fine_lotta()
@@ -800,9 +926,10 @@ end
 local function prepara_esperienza()
   assicura_sito_esp()
   if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
-  if not SOLO_ALLENATORI then lotta.molt = nil; return end
-  lotta.molt = 0                                 -- selvatico: niente; allenatore: niente finche' l'app non risponde
-  if lotta.allenatore then
+  if not (SOLO_ALLENATORI or CONTROLLO_ESP) then lotta.molt = nil; return end
+  -- finche' l'app non risponde: niente (solo allenatori) oppure normale (solo controllo del cap / Condividi)
+  lotta.molt = SOLO_ALLENATORI and 0 or 1
+  if lotta.allenatore and SOLO_ALLENATORI then
     local primo, vivi = nil, 0
     for _, m in ipairs(squadra or {}) do
       if m.ps > 0 and not m.uovo then vivi = vivi + 1; primo = primo or m end
@@ -815,7 +942,7 @@ end
 
 local function aggiorna_esperienza()
   if lotta.attiva and lotta.letto then
-    if SOLO_ALLENATORI and lotta.molt then applica_esp(lotta.molt) end
+    if (SOLO_ALLENATORI or CONTROLLO_ESP) and lotta.molt then applica_esp(lotta.molt) end
     if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
   elseif not lotta.attiva and lotta.finita then
     if esp_sito and lotta.molt ~= nil then ripristina_esp(); lotta.molt = nil end   -- a lotta finita il codice torna com'era
@@ -942,11 +1069,13 @@ local function attivita_attuale(fc)
   end
   local a = { lotta = true, specie = lotta.nemico.specie, livello = lotta.nemico.livello, ps = lotta.ps, ps_max = lotta.ps_max }
   if lotta.letto then a.allenatore = lotta.allenatore or 0 end
+  if lotta.mio then a.mio = lotta.mio end      -- il mio Pokemon in campo (per l'avviso "in pericolo" a tutti)
   return a
 end
 local function firma_attivita(a)
   if not a.lotta then return "-" end
-  return tostring(a.specie) .. ":" .. tostring(a.allenatore) .. ":" .. tostring(a.ps)
+  local m = a.mio and (a.mio.pid .. "/" .. a.mio.ps) or ""
+  return tostring(a.specie) .. ":" .. tostring(a.allenatore) .. ":" .. tostring(a.ps) .. ":" .. m
 end
 local ultima_attivita = nil
 
@@ -1057,8 +1186,20 @@ while true do
       local att = attivita_attuale(fc)
       local fa = firma_attivita(att)
       local det = APP and att.lotta and dettagli_lotta() or nil
+      if det and det.mio then
+        local m = nil
+        for _, x in ipairs(squadra or {}) do if x.pid == det.mio.pid then m = x end end
+        lotta.mio = { pid = det.mio.pid, ps = det.mio.ps, ps_max = det.mio.ps_max, specie = m and m.specie or 0,
+                      nome = m and m.soprannome or "" }
+        att.mio = lotta.mio
+        fa = firma_attivita(att)
+      end
       local fd = firma_dettagli(det)
-      local ff = APP and flag_in_testo(leggi_flag()) or nil
+      if APP and fc - (ultima_lettura_flag or -999) >= 90 then      -- i flag cambiano di rado: ogni secondo e mezzo basta
+        ultima_lettura_flag = fc
+        flag_letti = flag_in_testo(leggi_flag())
+      end
+      local ff = APP and flag_letti or nil
       verifica_flag(fc)
       local da_mandare = (#coda > 0) or (squadra and fs ~= ultima_firma) or (fb and fb ~= ultima_firma_box)
                          or (APP and fa ~= ultima_attivita) or #coda_app > 0 or (APP and fd ~= ultima_firma_dettagli)

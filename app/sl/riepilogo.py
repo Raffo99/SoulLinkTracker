@@ -252,6 +252,10 @@ class CartaGiocatore(QFrame):
         self.setToolTip("<br>".join(righe))
 
 
+def _frazione(v):
+    return {0.5: "½", 0.25: "¼", 0.125: "⅛"}.get(float(v or 1), f"{float(v or 1):g}")
+
+
 class BarraSuperiore(QFrame):
     cambia_partita = Signal()
 
@@ -319,7 +323,10 @@ class BarraSuperiore(QFrame):
             f"<b>{coppie}</b> <span style='color:{TENUE}'>legami vivi</span>",
             f"<b style='color:{KO if morti else TESTO}'>{morti}</b> <span style='color:{TENUE}'>morti</span>"]
             + ([f"<span style='color:{ORO}'>EXP solo dagli allenatori</span>"] if (st.get("regole") or {}).get("solo_allenatori") else [])
-            + ([f"<span style='color:#7fd1ff'>Condividi Esp.</span>"] if (st.get("regole") or {}).get("condividi_esp") else [])))
+            + ([f"<span style='color:#7fd1ff'>Condividi Esp.</span>"
+                + (f" ×{_frazione((st.get('regole') or {}).get('molt_condividi'))}" if float((st.get("regole") or {}).get("molt_condividi") or 1) < 1 else "")]
+               if (st.get("regole") or {}).get("condividi_esp") else [])
+            + ([f"<span style='color:{KO}'>Cap bloccato</span>"] if (st.get("regole") or {}).get("cap_bloccato") else [])))
         G = list(st["giocatori"])
         colori = colori_giocatori(st)
         ordine = sorted(G, key=lambda g: (g != io, st["giocatori"][g].get("entrato") or 0, g))
@@ -372,6 +379,7 @@ class CartaObiettivo(Carta):
         self.l_nome = etichetta("—", "grande")
         self.l_tipo = etichetta("", a_capo=True)
         self.l_cap = etichetta("")
+        self.l_tappa = etichetta("", a_capo=True)
         self.mappa = MappaUnima(compatta=True)
         self.mappa.setMinimumHeight(96)
         self.mappa.setToolTip("Clicca per aprire la mappa grande con tutti gli obiettivi")
@@ -380,6 +388,7 @@ class CartaObiettivo(Carta):
         self.l_altro = etichetta("", "tenue", a_capo=True)
         self.v.addWidget(self.l_nome)
         self.v.addWidget(self.l_tipo)
+        self.v.addWidget(self.l_tappa)
         self.v.addWidget(self.l_cap)
         self.v.addSpacing(2)
         self.v.addWidget(self.mappa, 1)
@@ -402,6 +411,14 @@ class CartaObiettivo(Carta):
             self.l_nome.setText("Tutto completato!")
             self.l_tipo.setText(f"<span style='color:{TENUE}'>{fatti} di {tot} obiettivi</span>")
         self.l_cap.setText(f"Livello massimo adesso: <b style='color:{WARN};font-size:12pt'>{x.get('cap', '?')}</b>")
+        t = x.get("tappa")
+        if t and not (o and t.get("obiettivo") == o.get("id")):
+            self.l_tappa.setText(f"<span style='color:#7fd1ff'>◆</span> <span style='color:{TENUE}'>Prima:</span> "
+                                 f"<b style='color:#cfe8ff'>{t['testo']}</b>"
+                                 + (f" <span style='color:{TENUE}'>· 📍 {t['luogo_nome']}</span>" if t["luogo_nome"] not in t["testo"] else ""))
+            self.l_tappa.show()
+        else:
+            self.l_tappa.hide()
         self.mappa.imposta(st, io)
         righe = []
         colori = colori_giocatori(st)
@@ -540,6 +557,12 @@ class MiniPokemon(QWidget):
         col.setSpacing(1)
         if p:
             stato = "" if p["stato"] == "squadra" else f" <span style='color:{KO if p['stato'] == 'morto' else WARN}'>· {p['stato']}</span>"
+            if p["stato"] in ("squadra", "box"):
+                from .lotta import NOMI_STATI, stato_di
+                sa, ca = stato_di(p)
+                if sa:
+                    stato += f" <span style='background:{alfa(ca, 0.22)};color:{ca};font-size:8pt;font-weight:700'>&nbsp;{sa}&nbsp;</span>"
+                    self.setToolTip(f"{nome(p)} è {NOMI_STATI.get(sa, sa)}. Clicca per la scheda.")
             chi = f"<span style='color:{colore_g};font-weight:600'>{giocatore}</span>&nbsp;&nbsp;" if giocatore else ""
             col.addWidget(etichetta(f"{chi}<b>{nome(p)}</b> <span style='color:{TENUE}'>Lv.{p.get('livello') or '?'}</span>{stato}"))
             tipi = " ".join(f"<span style='color:{COLORI_TIPI.get(t, '#888')}'>{t}</span>" for t in p.get("tipi", []))
@@ -604,7 +627,8 @@ class PannelloCoppie(QScrollArea):
 
     def aggiorna(self, st, io):
         P = st["pokemon"]
-        firma = repr(sorted((k, p["stato"], p.get("ps"), p.get("livello"), p.get("specie"), p.get("partner")) for k, p in P.items())) + io + repr(st["eventi"][:6])
+        firma = repr(sorted((k, p["stato"], p.get("ps"), p.get("ps_max"), p.get("livello"), p.get("specie"), p.get("partner"),
+                             p.get("stato_alt"), p.get("stato_lotta")) for k, p in P.items())) + io + repr(st["eventi"][:6])
         if firma == self._firma:
             return
         self._firma = firma

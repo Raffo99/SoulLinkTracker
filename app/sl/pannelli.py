@@ -298,22 +298,28 @@ class PannelloObiettivi(QWidget):
         self._G, self._fatti = [], {}
 
     def aggiorna(self, st):
+        from . import logica as LG
+        from . import storia
         io = self.io()
-        po = ((st["giocatori"].get(io) or {}).get("prossimo") or {})
+        x = st["giocatori"].get(io) or {}
+        po, tp = x.get("prossimo") or {}, x.get("tappa") or {}
         nf = len((st.get("fatti") or {}).get(io, {}))
-        self.l_info.setText(f"<span style='color:{TENUE}'>Obiettivi del gioco in ordine di storia · tu ne hai fatti</span> "
-                            f"<b>{nf}/{len(st.get('obiettivi') or [])}</b>"
-                            + (f" <span style='color:{TENUE}'>· prossimo:</span> <b style='color:#b9a8ff'>{po['nome']}</b>" if po else ""))
-        firma = repr(st.get("fatti")) + repr(list(st["giocatori"])) + repr([o["id"] for o in st.get("obiettivi") or []]) + repr(po.get("id"))
+        self.l_info.setText(f"<span style='color:{TENUE}'>La storia di Nero 2 in ordine: in grassetto le lotte importanti, le altre sono i "
+                            f"posti dove andare · obiettivi fatti</span> <b>{nf}/{len(st.get('obiettivi') or [])}</b>"
+                            + (f" <span style='color:{TENUE}'>· prossima tappa:</span> <b style='color:#b9a8ff'>{tp['testo']}</b>" if tp else ""))
+        self._G, self._fatti = list(st["giocatori"]), st.get("fatti", {})
+        stati = {g: storia.stato_tappe(self._fatti.get(g) or {}, set(y.get("visitati_set") or []))
+                 for g, y in st["giocatori"].items()}
+        firma = repr(self._fatti) + repr(self._G) + repr({g: [f for _, f in v] for g, v in stati.items()}) + repr(tp.get("id"))
         if firma == self._firma:
             return
         self._firma = firma
-        self._G, self._fatti = list(st["giocatori"]), st.get("fatti", {})
         inizio = st.get("iniziata") or 0
         L = self.lista
+        sb = L.verticalScrollBar().value()
         L.clear()
         L.setColumnCount(len(self._G) + 2)
-        L.setHeaderLabels(["Obiettivo", "Dove"] + self._G)
+        L.setHeaderLabels(["Tappa", "Dove"] + self._G)
         colori = colori_giocatori(st)
         for i, g in enumerate(self._G):
             L.headerItem().setForeground(i + 2, QColor(colori.get(g, ACC)))
@@ -322,29 +328,46 @@ class PannelloObiettivi(QWidget):
         h.setSectionResizeMode(0, QHeaderView.Stretch)
         for c in range(1, len(self._G) + 2):
             h.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        from . import logica as LG
-        for o in st.get("obiettivi") or []:
-            tipo = TIPI_OB.get(o["tipo"], o["tipo"]) + (f" {o['medaglia']}" if o.get("medaglia") else "")
-            it = QTreeWidgetItem([f"{o['nome']}   ·  {tipo}", LG.nome_luogo(o["luogo"]) if o.get("luogo") is not None else ""])
-            it.setData(0, Qt.UserRole, o["id"])
+        tipi = {o["id"]: o for o in st.get("obiettivi") or []}
+        corrente = None
+        for n, (tid, testo, luoghi, ob) in enumerate(storia.TAPPE):
+            o = tipi.get(ob) if ob else None
+            etichetta_t = testo if not o else f"{testo}   ·  {TIPI_OB.get(o['tipo'], o['tipo'])}" + (f" {o['medaglia']}" if o.get("medaglia") else "")
+            it = QTreeWidgetItem([etichetta_t, LG.nome_luogo(luoghi[0])])
+            it.setData(0, Qt.UserRole, ob or "")
             it.setForeground(1, QColor(TENUE))
-            for c, g in enumerate(self._G, 2):
-                x = self._fatti.get(g, {}).get(o["id"])
-                it.setText(c, f"✓ +{durata_breve(x['t'] - inizio)}" if x else "—")
-                it.setForeground(c, QColor(OK if x else TENUE))
-                it.setTextAlignment(c, Qt.AlignCenter)
-                it.setToolTip(c, f"Fatto dopo {durata_breve(x['t'] - inizio)} dall'inizio della run" if x else "Doppio clic per segnarlo a mano")
-            if po and o["id"] == po.get("id"):
+            if o:
                 f = it.font(0)
                 f.setBold(True)
                 it.setFont(0, f)
+            else:
+                it.setForeground(0, QColor("#b4b8ca"))
+            for c, g in enumerate(self._G, 2):
+                fatta = stati[g][n][1]
+                xo = self._fatti.get(g, {}).get(ob) if ob else None
+                it.setText(c, (f"✓ +{durata_breve(xo['t'] - inizio)}" if xo else "✓") if fatta else "—")
+                it.setForeground(c, QColor(OK if fatta else TENUE))
+                it.setTextAlignment(c, Qt.AlignCenter)
+                if ob:
+                    it.setToolTip(c, f"Fatto dopo {durata_breve(xo['t'] - inizio)} dall'inizio della run" if xo else "Doppio clic per segnarlo a mano")
+                else:
+                    it.setToolTip(c, "Ci è già stato (o ha già battuto un obiettivo che viene dopo)" if fatta else "Non ci è ancora stato")
+            if tp and tid == tp.get("id"):
                 it.setForeground(0, QColor("#b9a8ff"))
+                f = it.font(0)
+                f.setBold(True)
+                it.setFont(0, f)
+                corrente = it
             L.addTopLevelItem(it)
-        L.setToolTip("Doppio clic su una casella per segnare o togliere un obiettivo a mano")
+        L.setToolTip("Doppio clic su una casella di una lotta importante per segnarla o toglierla a mano")
+        if corrente is not None and not sb:
+            L.scrollToItem(corrente, QAbstractItemView.PositionAtCenter)
+        else:
+            L.verticalScrollBar().setValue(sb)
 
     def _doppio(self, it, col):
         vid = it.data(0, Qt.UserRole)
-        if col < 2 or not vid:
+        if col < 2 or not vid:              # solo le lotte importanti si segnano a mano (i posti si segnano da soli)
             return
         g = self._G[col - 2]
         fatto = bool(self._fatti.get(g, {}).get(vid))

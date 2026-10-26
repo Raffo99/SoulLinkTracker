@@ -168,9 +168,18 @@ class Finestra(QMainWindow):
         riga.addWidget(self.c_obiettivo, 1)
         riga.addWidget(self.c_luogo, 1)
         self.c_lotta = CartaLotta(self.sprite)          # durante la lotta prende il posto delle due carte
-        riga.addWidget(self.c_lotta, 2)
-        self.c_lotta.hide()
+        from PySide6.QtWidgets import QScrollArea
+        self.s_lotta = QScrollArea()                    # se lo schermo è basso il riquadro scorre invece di allungare la finestra
+        self.s_lotta.setWidgetResizable(True)
+        self.s_lotta.setFrameShape(QFrame.NoFrame)
+        self.s_lotta.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.s_lotta.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
+        self.s_lotta.setWidget(self.c_lotta)
+        self.s_lotta.setMinimumHeight(260)
+        riga.addWidget(self.s_lotta, 2)
+        self.s_lotta.hide()
         dv.addLayout(riga)
+        self._dv, self._riga = dv, riga
         self.l_avvisi = QLabel("")
         self.l_avvisi.setObjectName("avvisi")
         self.l_avvisi.setWordWrap(True)
@@ -276,6 +285,19 @@ class Finestra(QMainWindow):
         self.a_condividi = self.m_regole.addAction("Condividi esperienza: tutta la squadra cresce")
         self.a_condividi.setCheckable(True)
         self.a_condividi.triggered.connect(self._condividi_esp)
+        self.m_molt = self.m_regole.addMenu("Esperienza con Condividi")
+        from PySide6.QtGui import QActionGroup
+        gruppo = QActionGroup(self)
+        self.a_molt = {}
+        for v, t in ((1.0, "×1 (normale)"), (0.5, "×½"), (0.25, "×¼"), (0.125, "×⅛")):
+            a = self.m_molt.addAction(t)
+            a.setCheckable(True)
+            gruppo.addAction(a)
+            a.triggered.connect(lambda _=False, v=v: self._azione({"azione": "regole", "regole": {"molt_condividi": v}}))
+            self.a_molt[v] = a
+        self.a_cap_bloccato = self.m_regole.addAction("Blocca il level cap (sperimentale)…")
+        self.a_cap_bloccato.setCheckable(True)
+        self.a_cap_bloccato.triggered.connect(self._cap_bloccato)
         self.a_solo_allenatori = self.m_regole.addAction("Esperienza solo dagli allenatori (sperimentale)…")
         self.a_solo_allenatori.setCheckable(True)
         self.a_solo_allenatori.triggered.connect(self._modo_allenatori)
@@ -293,6 +315,7 @@ class Finestra(QMainWindow):
         m_altro.addAction("Controlla il tracker con il gioco…", lambda: self._controllo(False))
         m_altro.addAction("Cambia partita…", self._cambia_partita)
         m_altro.addAction("Cerca aggiornamenti…", lambda: self._cerca_aggiornamenti(True))
+        m_altro.addAction("Crea file per la diagnosi…", self._diagnosi)
         m_altro.addSeparator()
         m_altro.addAction("Reset totale…", self._reset_totale)
         self.b_altro.setMenu(m_altro)
@@ -334,6 +357,8 @@ class Finestra(QMainWindow):
         self._box_gioco = None
         self._det_lotta = None
         self._impara_rom = None
+        self._esp = {}                    # controllo dell'esperienza nella lotta in corso
+        self._critici = set()             # Pokémon in pericolo già segnalati
         self._entita_rom = None           # allenatori e strumenti di ogni zona, letti dalla ROM
         self._flag_evento = b""
         self._incontri_rom = None         # dove si incontrano selvatici, letto dalla ROM
@@ -596,6 +621,7 @@ class Finestra(QMainWindow):
             reg = st.get("regole") or {}
             righe.append("MODO allenatori" if reg.get("solo_allenatori") else "MODO normale")
             righe.append(f"CONDIVIDI {1 if reg.get('condividi_esp') else 0}")
+            righe.append(f"CONTROLLO {1 if self._controllo_esp_attivo(reg) else 0}")
         return "\n".join(righe) + "\n"
 
     def _imposta_velocita(self, v):
@@ -653,11 +679,88 @@ class Finestra(QMainWindow):
         in_lotta = bool(det)
         self.c_obiettivo.setVisible(not in_lotta)
         self.c_luogo.setVisible(not in_lotta)
+        self.s_lotta.setVisible(in_lotta)
         self.c_lotta.setVisible(in_lotta)
+        self._dv.setStretchFactor(self._riga, 3 if in_lotta else 0)       # in lotta il riquadro prende più spazio delle schede
+        self.l_avvisi.setVisible(not in_lotta and bool((self._ultimo_stato or {}).get("avvisi")))
+        self._dv.setStretchFactor(self.tabs, 1)
         if in_lotta:
             self._carica_impara()
             self.c_lotta.aggiorna(det, self._squadra_gioco)
             self._avvisa_lotta_importante(det)
+            self._controlla_esperienza(det)
+            m = det.get("mio") or {}
+            nome_m = next((p.get("soprannome") or L.info(p["specie"])["nome"] for p in self._squadra_gioco
+                           if p.get("pid") == m.get("pid")), "")
+            self._controlla_critico(self.cfg["giocatore"], {**m, "nome": nome_m}, det.get("allenatore"))
+        self._pubblica_squadra()
+        if self._ultimo_stato:
+            self.p_coppie.aggiorna(self._con_dati_vivi(self._ultimo_stato), self.cfg["giocatore"])
+
+    def _aggiorna_storia(self, st, io):
+        """Luoghi visitati (miei, dal gioco; degli altri, dalla loro app) e prossima tappa della storia di ognuno."""
+        from . import storia
+        chiave = str(st.get("run"))
+        tutti = dict(self.locale.get("visitati") or {})
+        mie = set(tutti.get(chiave, []))
+        prima = set(mie)
+        x = st["giocatori"].get(io) or {}
+        if self._gioco_attivo and str(x.get("luogo_attuale") or "").isdigit():
+            mie.add(int(x["luogo_attuale"]))
+        for r in st.get("percorsi") or []:                 # dove ho incontrato o catturato qualcosa
+            y = (r.get("giocatori") or {}).get(io) or {}
+            if (y.get("incontro") or y.get("cattura")) and str(r["luogo"]).isdigit():
+                mie.add(int(r["luogo"]))
+        if mie != prima:
+            self.locale["visitati"] = {chiave: sorted(mie)}          # solo la run attuale
+            self.locale.salva()
+        if sorted(mie) != self.sincro._presenza.get("visitati"):
+            self.sincro.imposta_presenza(visitati=sorted(mie))
+        fatti = st.get("fatti") or {}
+        for g, y in st["giocatori"].items():
+            vis = mie if g == io else set(y.get("visitati") or [])
+            y["tappa"] = storia.prossima(fatti.get(g) or {}, vis)
+            y["visitati_set"] = sorted(vis)
+
+    def _con_dati_vivi(self, st):
+        """Copia dello stato con PS e stato attuali dei Pokémon in squadra (dal gioco per i miei, dalle app degli altri
+        per i loro): in lotta sono quelli veri di adesso."""
+        io = self.cfg["giocatore"]
+        vivi = {}
+        for p in self.sincro._presenza.get("squadra") or self._squadra_gioco:
+            vivi[(io, p.get("pid"))] = p
+        for g, x in (st.get("giocatori") or {}).items():
+            if g != io:
+                for p in x.get("squadra_dett") or []:
+                    vivi[(g, p.get("pid"))] = p
+        P = {}
+        for k, p in st["pokemon"].items():
+            d = vivi.get((p["giocatore"], p.get("pid")))
+            if d and p["stato"] == "squadra":
+                p = {**p, "ps": d.get("ps", p.get("ps")), "ps_max": d.get("ps_max", p.get("ps_max")),
+                     "stato_alt": d.get("stato_alt"), "stato_lotta": d.get("stato_lotta")}
+            P[k] = p
+        return {**st, "pokemon": P}
+
+    def _controlla_critico(self, g, m, allenatore):
+        """Avviso per tutti quando il Pokémon in campo di qualcuno ha pochi PS (20% o meno)."""
+        if not m or not m.get("ps_max") or not m.get("pid"):
+            return
+        chiave = (g, m["pid"])
+        critico = 0 < (m.get("ps") or 0) <= m["ps_max"] * 0.2
+        if not critico:
+            self._critici.discard(chiave)
+            return
+        if chiave in self._critici:
+            return
+        self._critici.add(chiave)
+        nome_m = m.get("nome") or L.info(m.get("specie") or 0)["nome"]
+        if g == self.cfg["giocatore"]:
+            self.notifiche.grande(f"{nome_m} è in pericolo!", f"Gli restano <b>{m.get('ps')}/{m['ps_max']}</b> PS. Pensaci bene prima "
+                                  "della prossima mossa.", KO, "!", 8)
+        else:
+            self.notifiche.grande(f"{g}: {nome_m} è in pericolo!", f"Gli restano {m.get('ps')}/{m['ps_max']} PS. Tifate per lui!",
+                                  WARN, "!", 7)
 
     def _avvisa_lotta_importante(self, det):
         """Notifica grande all'inizio della lotta contro un capopalestra, il rivale, il Team Plasma, la Lega."""
@@ -807,6 +910,7 @@ class Finestra(QMainWindow):
             self.locale.salva()
         self.stato_run = st["stato"]
         io = self.cfg["giocatore"]
+        self._aggiorna_storia(st, io)
         self.barra.aggiorna(st, io)
         self.barra.tic()
         self.c_obiettivo.aggiorna(st, io)
@@ -823,7 +927,7 @@ class Finestra(QMainWindow):
                 righe.append(f"<span style='color:#b8955a'>… e altri {len(st['avvisi']) - 3}: passa qui sopra col mouse per vederli</span>")
             self.l_avvisi.setText(paragrafi(righe, 5))
             self.l_avvisi.setToolTip("\n".join(st["avvisi"]))
-            self.l_avvisi.show()
+            self.l_avvisi.setVisible(not self._det_lotta)        # in lotta lo spazio va al riquadro della lotta
         else:
             self.l_avvisi.hide()
         for k, a in self.a_regole.items():
@@ -832,7 +936,17 @@ class Finestra(QMainWindow):
         self.a_lega.setChecked(bool(st.get("lega")))
         self.a_solo_allenatori.setChecked(bool(st["regole"].get("solo_allenatori")))
         self.a_condividi.setChecked(bool(st["regole"].get("condividi_esp")))
-        self.p_coppie.aggiorna(st, io)
+        self.a_cap_bloccato.setChecked(bool(st["regole"].get("cap_bloccato")))
+        m = float(st["regole"].get("molt_condividi") or 1)
+        for v, a in self.a_molt.items():
+            a.setChecked(abs(v - m) < 1e-6)
+        self.m_molt.setEnabled(bool(st["regole"].get("condividi_esp")))
+        self.p_coppie.aggiorna(self._con_dati_vivi(st), io)
+        for g, x in st["giocatori"].items():              # Pokémon in pericolo degli altri
+            if g != io:
+                a = x.get("attivita") or {}
+                if a.get("lotta") and a.get("mio"):
+                    self._controlla_critico(g, a["mio"], a.get("allenatore"))
         for p in (self.p_percorsi, self.p_obiettivi, self.p_cimitero, self.p_diario, self.p_stat):
             p.aggiorna(st)
         self.p_diag.aggiorna(st)
@@ -894,6 +1008,22 @@ class Finestra(QMainWindow):
                            si="Attiva" if val else "Disattiva", no="Annulla"):
             self._azione({"azione": "regole", "regole": {"condividi_esp": bool(val)}})
             self.a_condividi.setChecked(bool(val))
+
+    def _cap_bloccato(self, val):
+        self.a_cap_bloccato.setChecked(not val)
+        if val:
+            ok = dialoghi.chiedi(self, "Bloccare il level cap?",
+                                 "Modalità sperimentale, per tutti i giocatori della partita: nessun Pokémon può andare oltre "
+                                 "il level cap. Se un Pokémon al 12 con cap 13 battendo un avversario salirebbe al 14, si ferma "
+                                 "al 13; al cap non prende più esperienza.\n\n"
+                                 "Prima di ogni Pokémon battuto l'app calcola quanta esperienza arriverebbe e la riduce quanto "
+                                 "serve. Con Condividi esperienza vale per tutta la squadra: il Pokémon più vicino al cap "
+                                 "decide per tutti.", si="Blocca il cap", no="Annulla")
+        else:
+            ok = dialoghi.chiedi(self, "Sbloccare il level cap?", "L'esperienza torna normale.", si="Sblocca", no="Annulla")
+        if ok:
+            self._azione({"azione": "regole", "regole": {"cap_bloccato": bool(val)}})
+            self.a_cap_bloccato.setChecked(bool(val))
 
     def _modo_allenatori(self, val):
         self.a_solo_allenatori.setChecked(not val)          # cambia solo se confermato (e poi arriva dallo stato)
@@ -1017,6 +1147,11 @@ class Finestra(QMainWindow):
 
     def _gestisci_risposte(self, risposte):
         for x in risposte:
+            if x.get("tipo") == "dump":
+                f, self._dump_attesa = getattr(self, "_dump_attesa", None), None
+                if f:
+                    f(bool(x.get("ok")), x.get("errore"))
+                continue
             if x.get("tipo") == "flag_allenatore":
                 self._calibra_flag_allenatori(x)
                 continue
@@ -1075,8 +1210,10 @@ class Finestra(QMainWindow):
         cap = ((st.get("giocatori") or {}).get(self.cfg["giocatore"]) or {}).get("cap") or 100
         dividi = (x.get("vivi") or 1) if (st.get("regole") or {}).get("condividi_esp") else 1
         r = esperienza.moltiplicatore(x.get("nemici") or [], x.get("primo"), cap, dividi)
-        with self._lock:
-            self._comandi_lua.append(f"ESP {x.get('allenatore')} {r['n']}")
+        self._esp["n_all"] = r["n"]                    # lo usa il controllo dell'esperienza di ogni Pokémon battuto
+        self._esp["n_all_per"] = x.get("allenatore")
+        if self._det_lotta:
+            self._controlla_esperienza(self._det_lotta)
         o = L.OBIETTIVO_DA_ID.get(x.get("allenatore") or -1)
         chi = o["nome"] if o else "l'allenatore"
         # niente livelli né nomi: non deve far capire com'è la squadra dell'allenatore
@@ -1088,6 +1225,74 @@ class Finestra(QMainWindow):
             t = f"Lotta con {chi}: esperienza normale ({r.get('motivo')})"
         self._log(t, ORO if r["n"] else TENUE)
         self.notifiche.mostra(t, ORO if r["n"] else TENUE, 5)
+
+    @staticmethod
+    def _controllo_esp_attivo(reg):
+        return bool(reg.get("solo_allenatori") or reg.get("cap_bloccato")
+                    or (reg.get("condividi_esp") and float(reg.get("molt_condividi") or 1) < 1))
+
+    def _controlla_esperienza(self, det):
+        """Prima di ogni Pokémon battuto decide quanta esperienza dare: niente oltre il level cap (se bloccato), Condividi
+        esperienza ridotto, solo allenatori. Lo script cambia il calcolo dell'esperienza del gioco per quel Pokémon."""
+        from . import esperienza as E
+        st = self._ultimo_stato or {}
+        reg = st.get("regole") or {}
+        if not det or not self._controllo_esp_attivo(reg):
+            return
+        nemici = det.get("nemici") or []
+        chiave = (det.get("allenatore"), tuple(n.get("specie") for n in nemici))
+        if self._esp.get("lotta") != chiave:
+            self._esp.update(lotta=chiave, extra={}, previsti={}, contati=set(), ultimo=None)
+            if self._esp.get("n_all_per") != det.get("allenatore"):
+                self._esp["n_all"] = None
+        # i Pokémon avversari appena battuti: la loro esperienza è già arrivata (la squadra si aggiorna solo a fine lotta)
+        for i, n in enumerate(nemici):
+            if (n.get("ps") or 0) == 0 and i in self._esp["previsti"] and i not in self._esp["contati"]:
+                self._esp["contati"].add(i)
+                for pid, e in self._esp["previsti"][i].items():
+                    self._esp["extra"][pid] = self._esp["extra"].get(pid, 0) + e
+        attivi = [i for i, n in enumerate(nemici) if n.get("in_campo") and (n.get("ps") or 0) > 0]
+        vivi_n = [i for i, n in enumerate(nemici) if (n.get("ps") or 0) > 0]
+        idx = (attivi or vivi_n or [None])[0]
+        if idx is None:
+            return
+        live = {m["pid"]: m for m in det.get("squadra") or []}
+        squadra = []
+        for p in self._squadra_gioco:
+            if p.get("uovo"):
+                continue
+            ps = live.get(p.get("pid"), {}).get("ps", p.get("ps") or 0)
+            if ps <= 0:
+                continue
+            q = dict(p)
+            extra = self._esp["extra"].get(p.get("pid"), 0)
+            if extra:
+                q["esperienza"] = (p.get("esperienza") or 0) + extra
+                curva = E.curva_di(p.get("specie"), p.get("livello") or 1, p.get("esperienza"))
+                lv = p.get("livello") or 1
+                while lv < 100 and E.esp_per_livello(curva, lv + 1) <= q["esperienza"]:
+                    lv += 1
+                q["livello"] = lv
+            squadra.append(q)
+        if reg.get("condividi_esp"):
+            riceventi = squadra
+        else:
+            pid_mio = (det.get("mio") or {}).get("pid")
+            riceventi = [q for q in squadra if q.get("pid") == pid_mio] or squadra[:1]
+        io = self.cfg["giocatore"]
+        cap = ((st.get("giocatori") or {}).get(io) or {}).get("cap") or 100
+        tid = (self._squadra_gioco[0].get("id_allenatore") if self._squadra_gioco else None)
+        codice, prev, perche = E.controllo(nemici[idx], riceventi, bool(det.get("allenatore")), reg, cap,
+                                           self._esp.get("n_all"), tid)
+        if codice is None:
+            return
+        self._esp["previsti"][idx] = prev
+        if codice != self._esp.get("ultimo"):
+            self._esp["ultimo"] = codice
+            with self._lock:
+                self._comandi_lua.append(f"ESPX {codice}")
+            testo = "niente" if codice == 0 else (f"×{codice}" if codice > 0 else f"÷{2 ** -codice}")
+            self._log(f"Esperienza per il prossimo Pokémon battuto: {testo}" + (f" ({perche})" if perche else ""), TENUE)
 
     def _battito(self):
         """Ogni minuto di gioco: il tempo della run avanza (conta solo se almeno un giocatore gioca)."""
@@ -1187,9 +1392,10 @@ class Finestra(QMainWindow):
             x = ent["zone"].get(int(zona))
         except (TypeError, ValueError):
             return
-        if not x or not x["script"]:
+        script = [n[3] for n in (x or {}).get("npc") or [] if n[1] != 4]
+        if not script:
             return
-        cand = {sc - int(t) for sc in x["script"]}
+        cand = {sc - int(t) for sc in script}
         attuale = self.cfg.get("scarto_script_allenatori", 3000)
         if attuale in cand:
             if not self.cfg.get("scarto_confermato"):
@@ -1236,7 +1442,10 @@ class Finestra(QMainWindow):
         d = R.per_luogo(ent, int(luogo), self.cfg.get("scarto_script_allenatori", 3000), n_all)
         base = self.cfg.get("flag_allenatori")
         vinti = self._vinti()
-        battuti = [t for t in d["allenatori"] if t in vinti or (base is not None and self._flag_acceso(base + t))]
+        # allenatori che ci sono davvero: quelli col flag di comparsa acceso non sono (più) sulla mappa
+        presenti = [t for t, fl in d["allenatori"].items() if not (fl and self._flag_evento and self._flag_acceso(fl))]
+        d["allenatori"] = presenti
+        battuti = [t for t in presenti if t in vinti or (base is not None and self._flag_acceso(base + t))]
         presi = [f for f in d["strumenti"] if self._flag_acceso(f)] if self._flag_evento else None
         return {"allenatori": len(d["allenatori"]), "battuti": len(battuti), "strumenti": len(d["strumenti"]),
                 "presi": None if presi is None else len(presi), "dal_gioco": base is not None}
@@ -1247,6 +1456,81 @@ class Finestra(QMainWindow):
             return
         x = st["giocatori"].get(self.cfg["giocatore"]) or {}
         self.c_luogo.imposta_conteggi(self._conteggi(x.get("luogo_attuale")))
+
+    # ---------------------------------------------------------------- diagnosi
+    def _diagnosi(self):
+        """Un file .zip con quello che serve per capire cosa non va: memoria della lotta e del codice dell'esperienza
+        (dallo script), allenatori e strumenti della zona (dalla ROM), registro e impostazioni (senza chiavi)."""
+        from .config import cartella_documenti
+        cartella = cartella_documenti() / "diagnosi"
+        cartella.mkdir(parents=True, exist_ok=True)
+        nome = f"diagnosi_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
+        dump = cartella / f"{nome}_memoria.txt"
+        self._log("Preparo il file per la diagnosi…")
+
+        def chiudi(ok_dump, errore=None):
+            try:
+                zipp = self._scrivi_diagnosi(cartella / f"{nome}.zip", dump if ok_dump and dump.exists() else None, errore)
+            except Exception as e:
+                dialoghi.avviso(self, "Diagnosi non riuscita", str(e), "errore")
+                return
+            finally:
+                try:
+                    dump.unlink()
+                except OSError:
+                    pass
+            self._log(f"File per la diagnosi pronto: {zipp}", OK)
+            if dialoghi.chiedi(self, "File per la diagnosi pronto", f"L'ho salvato qui:\n{zipp}\n\nMandamelo così vedo cosa succede "
+                               "nel tuo gioco. Il momento migliore è durante o subito dopo una lotta con un allenatore.",
+                               si="Apri la cartella", no="Chiudi", tipo="ok"):
+                from PySide6.QtGui import QDesktopServices
+                from PySide6.QtCore import QUrl
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(cartella)))
+        if not (self.emu.in_esecuzione and self.ponte.attivo):
+            chiudi(False, "gioco non avviato")
+            return
+        self._dump_attesa = lambda ok, err: chiudi(ok, err)
+        with self._lock:
+            self._comandi_lua.append(f"DUMP {dump}")
+
+        def scaduto():
+            if getattr(self, "_dump_attesa", None):
+                self._dump_attesa = None
+                chiudi(False, "lo script non ha risposto")
+        QTimer.singleShot(10000, scaduto)
+
+    def _scrivi_diagnosi(self, percorso, dump, errore):
+        import json
+        import zipfile
+        from . import rom as R
+        st = self._ultimo_stato or {}
+        io = self.cfg["giocatore"]
+        x = (st.get("giocatori") or {}).get(io) or {}
+        cfg = {k: v for k, v in self.cfg.items() if "chiave" not in k and "key" not in k}
+        info = {"versione": VERSIONE, "config": cfg, "rom": str(self.emu.rom or ""), "errore_dump": errore,
+                "zona": x.get("zona"), "luogo": x.get("luogo_attuale"), "luogo_nome": x.get("zona_nome"),
+                "conteggi": self._conteggi(x.get("luogo_attuale")), "lotta": self._det_lotta, "esperienza": {
+                    k: (sorted(v) if isinstance(v, set) else v) for k, v in (self._esp or {}).items()},
+                "squadra": [{k: p.get(k) for k in ("pid", "specie", "livello", "esperienza", "ps", "ps_max", "stato_alt",
+                                                   "strumento", "id_allenatore")} for p in self._squadra_gioco],
+                "regole": st.get("regole"), "attivita": x.get("attivita"), "flag_allenatori": self.cfg.get("flag_allenatori"),
+                "diagnostica_script": x.get("diagnostica")}
+        ent = self._entita_rom
+        if ent:
+            zona = x.get("zona")
+            luogo = x.get("luogo_attuale")
+            zone = [z for z, l in ent["luogo"].items() if str(luogo).isdigit() and l == int(luogo)]
+            if zona is not None and int(zona) not in zone:
+                zone.append(int(zona))
+            info["entita"] = {"sprite_strumento": ent.get("sprite_strumento"),
+                              "zone": {str(z): ent["zone"].get(z) for z in zone}}
+        righe = [self.p_registro.item(i).text() for i in range(self.p_registro.count())]
+        with zipfile.ZipFile(percorso, "w", zipfile.ZIP_DEFLATED) as z:
+            z.writestr("info.json", json.dumps(info, ensure_ascii=False, indent=1, default=str))
+            z.writestr("registro.txt", "\n".join(righe))
+            if dump:
+                z.write(dump, "memoria.txt")
+        return percorso
 
     def _apri_mappa(self):
         from .mappa import DialogoMappa
@@ -1275,15 +1559,23 @@ class Finestra(QMainWindow):
                  "natura", "stato_alt", "esperienza")
         imp = self.c_lotta.impara
         lista = []
+        vivi = {m["pid"]: m for m in ((self._det_lotta or {}).get("squadra") or [])}
         for p in self._squadra_gioco:
             if p.get("uovo"):
                 continue
             d = {k: p.get(k) for k in campi if p.get(k) is not None}
+            if p.get("pid") in vivi:                       # in lotta: PS e stato veri di adesso
+                d["ps"] = vivi[p["pid"]].get("ps", d.get("ps"))
+                d["stato_lotta"] = vivi[p["pid"]].get("stato") or 0
             r = riassunto_impara(imp.get(p.get("specie")), p.get("livello")) if imp else None
             if r:
                 d["impara"] = r
             lista.append(d)
-        self.sincro.imposta_presenza(squadra=lista)
+        if lista != self.sincro._presenza.get("squadra"):
+            self.sincro.imposta_presenza(squadra=lista)
+            if vivi and time.time() - getattr(self, "_ultima_pubblicazione", 0) > 3:   # in lotta: gli altri lo vedono subito
+                self._ultima_pubblicazione = time.time()
+                self.sincro._presenza_subito = True
         from .scheda import SchedaPokemon
         SchedaPokemon.aggiorna_tutte()
 

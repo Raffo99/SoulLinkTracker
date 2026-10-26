@@ -157,7 +157,8 @@ class MappaUnima(QWidget):
         if not self.compatta or not self.st:
             return QRectF(0, 0, 100, 80)
         g = (self.st.get("giocatori") or {}).get(self.io) or {}
-        punti = [nodo_di(g.get("luogo_attuale")), nodo_di((g.get("prossimo") or {}).get("luogo"))]
+        punti = [nodo_di(g.get("luogo_attuale")), nodo_di((g.get("prossimo") or {}).get("luogo")),
+                 nodo_di((g.get("tappa") or {}).get("luogo"))]
         punti = [NODI[k] for k in punti if k]
         if not punti:
             return QRectF(0, 0, 100, 80)
@@ -303,6 +304,19 @@ class MappaUnima(QWidget):
                     p.drawText(QRectF(cc.x() - r, cc.y() - r, 2 * r, 2 * r), Qt.AlignCenter, testo)
                     p.setFont(f)
 
+        # la prossima tappa della storia (un posto dove andare prima dell'obiettivo): rombo azzurro
+        tappa = ((self.st.get("giocatori") or {}).get(self.io) or {}).get("tappa") or {}
+        k_tappa = nodo_di(tappa.get("luogo")) if not tappa.get("obiettivo") else None
+        if k_tappa and k_tappa != k_pross:
+            c = self._pos(k_tappa)
+            r = scala * 1.7
+            rombo = QPainterPath()
+            rombo.moveTo(c.x(), c.y() - r); rombo.lineTo(c.x() + r, c.y()); rombo.lineTo(c.x(), c.y() + r); rombo.lineTo(c.x() - r, c.y())
+            rombo.closeSubpath()
+            p.setPen(QPen(QColor("#7fd1ff"), max(1.5, scala * 0.3)))
+            p.setBrush(QColor(127, 209, 255, 50))
+            p.drawPath(rombo)
+
         # il mio prossimo obiettivo: anello che pulsa
         if k_pross:
             c = self._pos(k_pross)
@@ -379,6 +393,10 @@ class MappaUnima(QWidget):
         chi = self._giocatori_per_nodo().get(vicino) or []
         if chi:
             righe.append(f"<span style='color:{TENUE}'>Qui adesso:</span> " + ", ".join(chi))
+        tappe = [f"{g} ({x['tappa']['testo']})" for g, x in (self.st.get("giocatori") or {}).items()
+                 if x.get("tappa") and not x["tappa"].get("obiettivo") and nodo_di(x["tappa"]["luogo"]) == vicino]
+        if tappe:
+            righe.append(f"<span style='color:{TENUE}'>Prossima tappa di:</span> " + ", ".join(tappe))
         pross = [g for g, o in self._prossimi().items() if nodo_di(o.get("luogo")) == vicino]
         if pross:
             righe.append(f"<span style='color:{TENUE}'>Prossimo obiettivo di:</span> " + ", ".join(pross))
@@ -388,7 +406,7 @@ class MappaUnima(QWidget):
 LEGENDA = (f"<span style='color:{TENUE};font-size:8.5pt'><span style='color:{ORO}'>●</span> capopalestra (col numero della medaglia) · "
            f"<span style='color:#8fc7ff'>R</span> rivale · <span style='color:{KO}'>P</span> Team Plasma · "
            f"<span style='color:#c56cff'>4</span> Lega · <span style='color:{OK}'>✓</span> fatto da tutti · "
-           f"l'anello viola è il tuo prossimo obiettivo, i cerchi colorati siete voi (col bordo bianco tu). "
+           f"l'anello viola è il tuo prossimo obiettivo, il rombo azzurro la prossima tappa della storia, i cerchi colorati siete voi (col bordo bianco tu). "
            f"Passa col mouse su un luogo per i dettagli. La mappa è uno schema: le distanze sono indicative.</span>")
 
 

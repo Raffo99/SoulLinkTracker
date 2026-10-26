@@ -1,4 +1,9 @@
-- Tracker della lotta più leggibile: un riquadro per il tuo Pokémon con barra dei PS e statistiche in caselle, l'abilità su una riga a parte e le mosse in quattro riquadri colorati col tipo, come nel gioco.
-- Obiettivi rifatti: solo le 20 lotte importanti del gioco, nell'ordine vero della storia e col luogo di ognuna. Tolti tappe, piccole sfide e traguardi bonus. Corretti anche Mirton e Marzio (erano scambiati) e il rivale al PWT.
-- Mappa di Unima: una piccola mappa nel riquadro "Prossimo obiettivo", centrata su di te e sul prossimo obiettivo; cliccandola si apre la mappa grande con tutti gli obiettivi e dove si trova ognuno di voi.
-- "Dove sei" mostra quanti allenatori ci sono ancora da battere e quanti strumenti da raccogliere nel luogo.
+- Esperienza solo dagli allenatori: il punto del gioco da modificare ora si riconosce anche come nei codici Action Replay della versione europea/americana (non funzionava sulla vostra ROM).
+- Nuova regola sperimentale "Blocca il level cap": nessun Pokémon va oltre il cap; se un colpo lo farebbe salire di due livelli, si ferma al cap.
+- Moltiplicatore per Condividi esperienza: ×1, ×½, ×¼, ×⅛.
+- Tracker della lotta: segue l'avversario in campo anche quando l'allenatore cambia Pokémon (legge il Pokémon in campo in un altro punto della memoria). Nuova striscia dell'avversario con PS, stato e abilità, quando il gioco la mostra.
+- Coppie: stato (addormentato, scottato…) e PS di ogni Pokémon, in tempo reale durante la lotta, anche degli amici.
+- Avviso per tutti quando il Pokémon in campo di qualcuno è in pericolo (20% dei PS o meno).
+- Tappe della storia: tutti i posti dove andare per proseguire (Pokéwood, Fogne di Austropoli, Torre Cielo…), nell'ordine e col luogo, nella scheda Obiettivi, nel riquadro Prossimo obiettivo e sulla mappa.
+- Strumenti contati anche quando le Poké Ball a terra sono fatte in modo diverso; allenatori che non sono più sulla mappa non contano.
+- Altro → Crea file per la diagnosi: un .zip con quello che serve per sistemare le parti che dipendono dal gioco.
