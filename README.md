@@ -6,9 +6,9 @@ Un'app per Windows con BizHawk dentro, per giocare una Randomizer Soul Link Nuzl
 - **Incontri e catture**: riconosce lotte selvatiche, luogo, primo incontro, cattura o fallimento. Il **primo selvatico della run (tutorial) non conta**.
 - **Gruppi legati e morti**: tutti i Pokémon catturati nello stesso luogo formano un gruppo (coppia con 2 giocatori, fino a 4 con 4). Se ne muore uno muoiono tutti, e se anche un solo giocatore fallisce l'incontro il gruppo si rompe e gli altri vanno nel box. Il game over parte da solo.
 - **PC e medaglie**: legge il PC e le medaglie; il level cap sale da solo.
-- **Obiettivi a tappe**: 9 tappe della storia (da *Si parte!* ad Alisopoli fino alla *Lega Pokémon*), ognuna con i suoi sotto-obiettivi: le lotte importanti (capipalestra, rivale, Team Plasma, Superquattro, Iris) più qualche piccola sfida (prima cattura, squadra di 4, prima evoluzione, squadra al completo). Si segnano da soli, con il tempo dall'inizio della run come negli speedrun. Quando tutti battono Iris, la run è vinta.
-- **Traguardi bonus**: 8 traguardi facoltativi, per esempio *Palestra impeccabile* (medaglia senza perdite dalla precedente), *Disciplina* (medaglia con tutta la squadra entro il cap), *Fedele compagno* (starter vivo alla 4ª medaglia), *Colpo di fortuna* (uno shiny).
-- **Notifiche e statistiche**: morti, legami, obiettivi e traguardi compaiono come notifiche nell'angolo. La scheda *Statistiche* mostra i numeri della run per ogni giocatore e i record tra una run e l'altra.
+- **Obiettivi del gioco**: le 20 lotte importanti di Nero 2 in ordine di storia (rivale, gli 8 capipalestra, il Team Plasma, i Superquattro e Iris), ognuna col luogo dove si combatte. Si segnano da soli, con il tempo dall'inizio della run come negli speedrun. Quando tutti battono Iris, la run è vinta.
+- **Mappa di Unima**: uno schema con città e percorsi, dove sono tutti gli obiettivi (fatti, il tuo prossimo, quelli dopo) e dove si trova ognuno di voi.
+- **Notifiche e statistiche**: morti, legami e obiettivi compaiono come notifiche nell'angolo. La scheda *Statistiche* mostra i numeri della run per ogni giocatore e i record tra una run e l'altra.
 - **Nuova run**: genera la ROM randomizzata, riparte dal salvataggio di partenza e riavvia BizHawk sulla ROM giusta.
 - **Regole**: clausola doppioni, clausola shiny e incontro del tutorial, nel menu *Regole*.
 
@@ -73,20 +73,27 @@ Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cance
   - in lotta, sotto, c'è anche il luogo (📍) dove si combatte;
   - **IN ATTESA** se l'app è aperta ma il gioco no, **OFFLINE** se l'app è chiusa.
   Lo stato degli altri arriva in 3–4 secondi. Passa col mouse su una scheda per vedere la squadra intera.
-- **Prossimo obiettivo**: chi devi battere e il livello massimo adesso, più i progressi degli altri.
-- **Dove sei**: se nel luogo attuale hai ancora l'incontro, per te e per gli altri.
+- **Prossimo obiettivo**: chi devi battere, dove (📍) e il livello massimo adesso, con una piccola mappa centrata su di te e sul prossimo obiettivo (clic per aprire la mappa grande), più i prossimi obiettivi degli altri.
+- **Dove sei**: quanti **allenatori** ci sono ancora da battere e quanti **strumenti** da raccogliere nel luogo, e se hai ancora l'incontro, per te e per gli altri.
 - **Coppie**: ogni tuo Pokémon accanto ai suoi partner (fino a 3), con livello e PS. Se un partner è nel box la riga diventa gialla.
-- **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (tappe e traguardi; doppio clic per correggere), Cimitero, Statistiche, Diario, Sistema (registro dell'app e diagnostica).
+- **Altre schede**: Percorsi (tasto destro per correggere), Obiettivi (l'elenco con chi li ha fatti, doppio clic per correggere, e il pulsante per la mappa grande), Cimitero, Statistiche, Diario, Sistema (registro dell'app e diagnostica).
 
 Sopra il gioco, in BizHawk, non compare nessuna scritta: messaggi e avvisi arrivano come notifiche nell'app. Ogni giocatore ha un colore (avatar, nomi nelle coppie, colonne di Percorsi e Obiettivi), uguale per tutti. Il carattere usato è Inter (licenza SIL OFL, in `risorse/font`).
 
 ## Tracker della lotta
-Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco, grigie quando vanno KO), mai quali. Il tracker legge dalla memoria del gioco **chi è in campo**, da una parte e dall'altra: quando l'allenatore manda un altro Pokémon o tu ne cambi uno, il riquadro lo segue da solo.
-- la tua squadra, ognuno con il miglior moltiplicatore che ha contro l'avversario: è selezionato quello in campo, ma puoi cliccarne un altro per vedere come se la caverebbe;
-- il Pokémon scelto: tipi, PS, stato, **abilità con la descrizione**, quante mosse impara in tutto salendo di livello e **tra quanti livelli impara la prossima** (quale non si dice; lette dalla vostra ROM randomizzata);
-- le sue **statistiche**: verde quella aumentata dalla natura, rossa quella diminuita, tra parentesi le modifiche in lotta (+1, −2…);
-- le sue mosse: il nome è **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), una **stella dorata** se è dello stesso tipo del Pokémon (STAB), poi tipo, potenza, moltiplicatore totale (efficacia × 1,5 se STAB: per esempio superefficace + STAB = ×3) e PP.
+Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la lotta, con le informazioni sui **tuoi** Pokémon. Dell'avversario vedi solo quello che vedi anche nel gioco: il Pokémon in campo (nome e livello) e, per gli allenatori, quanti Pokémon hanno (come le Poké Ball del gioco, grigie quando vanno KO), mai quali. Il tracker legge dalla memoria del gioco **chi è in campo**, da una parte e dall'altra, e lo segue da solo. Dall'alto in basso:
+- la tua squadra, ognuno con il miglior moltiplicatore contro l'avversario: è selezionato quello in campo, ma puoi cliccarne un altro per confrontarlo;
+- il riquadro del tuo Pokémon: nome, tipi, stato, barra dei PS e le **statistiche in caselle** (verde quella aumentata dalla natura, rossa quella diminuita, accanto le modifiche in lotta come +1 o −2), più la natura;
+- l'**abilità** con la sua descrizione e tra quanti livelli arriva la **prossima mossa** (quale non si dice);
+- le **mosse in quattro riquadri** come nel gioco, colorati col tipo: nome **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), **stella dorata** se STAB, a destra il moltiplicatore totale (efficacia × 1,5 se STAB: superefficace + STAB = ×3), sotto categoria, potenza e PP.
 PS, PP e modifiche alle statistiche del Pokémon in campo sono in tempo reale. La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
+
+## Mappa e obiettivi
+Gli obiettivi sono solo quelli veri del gioco, nell'ordine della storia di Nero 2: rivale ad Alisopoli e alla Fattoria di Venturia, Komor, Velia, Artemisio, Camelia, Rafan, rivale al PWT, Anemone, rivale a Spiraria, Aristide, Ciprian, Acromio e Ghecis alla Fossa Gigante, rivale alla Via Vittoria, i Superquattro e Iris. Le vecchie tappe, le piccole sfide e i traguardi bonus non ci sono più.
+La **mappa di Unima** (clic sulla piccola mappa nel riquadro *Prossimo obiettivo*, o pulsante nella scheda *Obiettivi*) è uno schema disegnato dall'app, non la mappa del gioco: città e percorsi collegati, i simboli degli obiettivi (numero della medaglia per i capipalestra, R rivale, P Team Plasma, 4 Lega, ✓ fatto da tutti), un anello viola che pulsa sul tuo prossimo obiettivo e un cerchio colorato per ognuno di voi dove si trova adesso. Passa col mouse su un luogo per vedere obiettivi e giocatori lì.
+
+## Allenatori e strumenti del luogo
+Nel riquadro *Dove sei* compaiono quanti allenatori ci sono ancora da battere e quanti strumenti da raccogliere, contando tutto il luogo (anche le case e gli edifici con lo stesso nome). L'app li legge dalla vostra ROM (chi c'è sulla mappa) e dalla memoria del gioco (cosa hai già raccolto). Gli strumenti sono quelli visibili nelle Poké Ball a terra, non quelli nascosti. Per gli allenatori battuti, all'inizio l'app conta le lotte vinte che ha visto in questa run; dopo un paio di lotte vinte contro allenatori capisce dove il gioco li segna e li legge direttamente da lì (anche quelli battuti prima).
 
 ## Scheda dei Pokémon
 Nelle **Coppie** clicca un Pokémon, tuo o di un amico, per aprire la sua scheda: PS ed esperienza che manca al prossimo livello, abilità, natura, statistiche con le barre, mosse (tipo, categoria, potenza, precisione, PP), quante mosse impara e tra quanti livelli la prossima, i legami. La scheda si aggiorna da sola mentre giocate. Statistiche e mosse ci sono per i Pokémon in squadra; quelle degli amici arrivano dalla loro app (servono la versione 5.3 o successiva e il gioco aperto almeno una volta). Dalla scheda, **Correggi…** apre le correzioni a mano di prima.

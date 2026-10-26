@@ -364,63 +364,55 @@ TIPI_OB = {"palestra": "Capopalestra", "rivale": "Rivale", "plasma": "Team Plasm
 
 
 class CartaObiettivo(Carta):
+    apri_mappa = Signal()
+
     def __init__(self):
         super().__init__("PROSSIMO OBIETTIVO")
-        self.l_tappa = etichetta("", "tenue")
+        from .mappa import MappaUnima
         self.l_nome = etichetta("—", "grande")
-        self.l_tipo = etichetta("", "tenue")
-        self.barra = QProgressBar()
-        self.barra.setTextVisible(False)
-        self.barra.setStyleSheet(f"QProgressBar::chunk{{background:{ACC};}}")
-        self.l_prog = etichetta("", "tenue")
+        self.l_tipo = etichetta("", a_capo=True)
         self.l_cap = etichetta("")
+        self.mappa = MappaUnima(compatta=True)
+        self.mappa.setMinimumHeight(96)
+        self.mappa.setToolTip("Clicca per aprire la mappa grande con tutti gli obiettivi")
+        self.mappa.setCursor(Qt.PointingHandCursor)
+        self.mappa.mouseReleaseEvent = lambda e: self.apri_mappa.emit()
         self.l_altro = etichetta("", "tenue", a_capo=True)
-        for w in (self.l_tappa, self.l_nome, self.l_tipo):
-            self.v.addWidget(w)
-        self.v.addSpacing(4)
-        self.v.addWidget(self.barra)
-        self.v.addWidget(self.l_prog)
-        self.v.addSpacing(4)
+        self.v.addWidget(self.l_nome)
+        self.v.addWidget(self.l_tipo)
         self.v.addWidget(self.l_cap)
-        self.v.addSpacing(6)
+        self.v.addSpacing(2)
+        self.v.addWidget(self.mappa, 1)
+        self.v.addSpacing(2)
         self.v.addWidget(self.l_altro)
-        self.v.addStretch()
 
     def aggiorna(self, st, io):
         x = st["giocatori"].get(io) or {}
         o = x.get("prossimo")
-        tot = len(st.get("voci") or st.get("obiettivi", []))
+        tot = len(st.get("obiettivi", []))
         fatti = len((st.get("fatti") or {}).get(io, {}))
         if o:
-            if o.get("tappa"):
-                self.l_tappa.setText(f"Tappa {o['tappa_n']} di {o['tappe']} · <b style='color:#c9cbd6'>{o['tappa']}</b>")
-                self.barra.setRange(0, o["tappa_voci"])
-                self.barra.setValue(o["tappa_fatte"])
-                self.l_prog.setText(f"{o['tappa_fatte']} di {o['tappa_voci']} in questa tappa · {fatti}/{tot} in tutto")
-            else:
-                self.l_tappa.setText("")
-                self.barra.setRange(0, max(1, tot))
-                self.barra.setValue(fatti)
-                self.l_prog.setText(f"{fatti} di {tot} obiettivi")
             self.l_nome.setText(o["nome"])
-            self.l_tipo.setText(TIPI_OB.get(o["tipo"], o["tipo"]) + (f" · medaglia {o['medaglia']}" if o.get("medaglia") else ""))
+            pezzi = [TIPI_OB.get(o["tipo"], o["tipo"]) + (f" · medaglia {o['medaglia']}" if o.get("medaglia") else "")]
+            if o.get("luogo_nome"):
+                pezzi.append(f"📍 <b style='color:#e6e8f0'>{o['luogo_nome']}</b>")
+            pezzi.append(f"{fatti} di {tot} fatti")
+            self.l_tipo.setText(f"<span style='color:{TENUE}'>" + " · ".join(pezzi) + "</span>")
         else:
-            self.l_tappa.setText("")
             self.l_nome.setText("Tutto completato!")
-            self.l_tipo.setText("")
-            self.barra.setRange(0, 1)
-            self.barra.setValue(1)
-            self.l_prog.setText(f"{fatti}/{tot}")
+            self.l_tipo.setText(f"<span style='color:{TENUE}'>{fatti} di {tot} obiettivi</span>")
         self.l_cap.setText(f"Livello massimo adesso: <b style='color:{WARN};font-size:12pt'>{x.get('cap', '?')}</b>")
+        self.mappa.imposta(st, io)
         righe = []
+        colori = colori_giocatori(st)
         for g, y in st["giocatori"].items():
             if g == io:
                 continue
             po = y.get("prossimo")
             nf = len((st.get("fatti") or {}).get(g, {}))
-            dove = f"tappa {po['tappa_n']}: {po['nome']}" if po and po.get("tappa") else (po["nome"] if po else "tutto completato")
-            righe.append(f"<b style='color:#c9cbd6'>{g}</b>&nbsp; {dove} <span style='color:#6f7389'>· {nf}/{tot}</span>")
-        self.l_altro.setText(paragrafi(righe, 5))
+            righe.append(f"<span style='color:{colori.get(g, ACC)}'>●</span> <b style='color:#c9cbd6'>{g}</b>&nbsp; "
+                         f"{po['nome'] if po else 'tutto completato'} <span style='color:#6f7389'>· {nf}/{tot}</span>")
+        self.l_altro.setText(paragrafi(righe, 4))
         self.l_altro.setVisible(bool(righe))
 
 
@@ -431,7 +423,10 @@ class CartaLuogo(Carta):
         self.l_io = etichetta("", a_capo=True)
         self.l_altro = etichetta("", a_capo=True)
         self.l_nota = etichetta("", "tenue", a_capo=True)
+        self.l_conti = etichetta("", a_capo=True)
+        self.l_conti.hide()
         self.v.addWidget(self.l_luogo)
+        self.v.addWidget(self.l_conti)
         self.v.addSpacing(4)
         self.v.addWidget(self.l_io)
         self.v.addSpacing(2)
@@ -439,6 +434,34 @@ class CartaLuogo(Carta):
         self.v.addSpacing(4)
         self.v.addWidget(self.l_nota)
         self.v.addStretch()
+
+    def imposta_conteggi(self, c):
+        """Allenatori ancora da battere e strumenti ancora da raccogliere nel luogo (letti da ROM e memoria)."""
+        if not c or (not c["allenatori"] and not c["strumenti"]):
+            self.l_conti.hide()
+            return
+        pezzi = []
+        if c["allenatori"]:
+            resta = c["allenatori"] - c["battuti"]
+            col = OK if resta == 0 else WARN
+            t = (f"<b style='color:{col}'>{resta}</b> <span style='color:{TENUE}'>allenator{'e' if resta == 1 else 'i'} da battere su</span> "
+                 f"{c['allenatori']}" if resta else f"<span style='color:{OK}'>allenatori tutti battuti</span> <span style='color:{TENUE}'>({c['allenatori']})</span>")
+            pezzi.append(f"<span title=''>👤</span> {t}")
+        if c["strumenti"]:
+            if c["presi"] is None:
+                t = f"{c['strumenti']} <span style='color:{TENUE}'>strumenti a terra</span>"
+            else:
+                resta = c["strumenti"] - c["presi"]
+                col = OK if resta == 0 else "#8fc7ff"
+                t = (f"<b style='color:{col}'>{resta}</b> <span style='color:{TENUE}'>strument{'o' if resta == 1 else 'i'} da raccogliere su</span> "
+                     f"{c['strumenti']}" if resta else f"<span style='color:{OK}'>strumenti tutti raccolti</span> <span style='color:{TENUE}'>({c['strumenti']})</span>")
+            pezzi.append(f"🎒 {t}")
+        self.l_conti.setText(paragrafi(pezzi, 2))
+        self.l_conti.setToolTip("Conteggi letti dalla ROM e dalla memoria del gioco, per tutto il luogo (anche le case e gli edifici "
+                                "con lo stesso nome). Strumenti: solo quelli visibili nelle Poké Ball, non quelli nascosti."
+                                + ("" if c.get("dal_gioco") else "\nAllenatori battuti: per ora conto le lotte viste dall'app in questa run; "
+                                   "dopo un paio di lotte vinte li leggo direttamente dal gioco."))
+        self.l_conti.show()
 
     @staticmethod
     def situazione(riga, g):

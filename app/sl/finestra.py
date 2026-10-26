@@ -179,7 +179,9 @@ class Finestra(QMainWindow):
         self.tabs = QTabWidget()
         self.p_coppie = PannelloCoppie(self.sprite)
         self.p_percorsi = PannelloPercorsi(self._azione, self.sprite)
-        self.p_obiettivi = PannelloObiettivi(self._azione)
+        self.p_obiettivi = PannelloObiettivi(self._azione, lambda: self.cfg["giocatore"], self._apri_mappa)
+        self.c_obiettivo.apri_mappa.connect(self._apri_mappa)
+        self._mappa = None
         self.p_cimitero = PannelloCimitero(self.sprite)
         self.p_diario = PannelloDiario()
         self.p_stat = PannelloStatistiche(self.sprite)
@@ -195,6 +197,7 @@ class Finestra(QMainWindow):
                      (self.p_cimitero, "Cimitero"), (self.p_stat, "Statistiche"), (self.p_diario, "Diario"),
                      (sistema, "Sistema")):
             self.tabs.addTab(w, n)
+        self.tabs.setMinimumHeight(170)       # le schede si stringono; i riquadri sopra no
         dv.addWidget(self.tabs, 1)
         split.addWidget(destra)
         self.destra = destra
@@ -331,6 +334,8 @@ class Finestra(QMainWindow):
         self._box_gioco = None
         self._det_lotta = None
         self._impara_rom = None
+        self._entita_rom = None           # allenatori e strumenti di ogni zona, letti dalla ROM
+        self._flag_evento = b""
         self._incontri_rom = None         # dove si incontrano selvatici, letto dalla ROM
         self._ultimo_luogo = None
         self._luoghi_avvisati = set()
@@ -550,6 +555,19 @@ class Finestra(QMainWindow):
         if "lotta_dettagli" in dati:                     # solo per il tracker della lotta, non per la partita
             self._det_lotta = dati.pop("lotta_dettagli") or None
             self._dettagli.emit(self._det_lotta)
+            if self._det_lotta and self._det_lotta.get("allenatore"):
+                t, z = self._det_lotta["allenatore"], dati.get("zona")
+                self._in_gui.emit(lambda: self._impara_scarto_script(t, z))
+        if "flag_evento" in dati:                        # strumenti raccolti, allenatori battuti
+            try:
+                self._flag_evento = bytes.fromhex(dati.pop("flag_evento") or "")
+            except ValueError:
+                pass
+            self._in_gui.emit(self._aggiorna_conteggi)
+        for e in dati.get("eventi") or []:
+            if e.get("tipo") == "fine_allenatore" and e.get("vinta") and e.get("allenatore"):
+                t = int(e["allenatore"])
+                self._in_gui.emit(lambda t=t: self._segna_vinto(t))
         if dati.get("ping"):                             # contatto leggero: solo comandi, niente partita
             return self._righe_per_lua(dati, solo_comandi=True)
         self._gioco_attivo = bool(dati.get("attivo"))
@@ -689,13 +707,20 @@ class Finestra(QMainWindow):
             except Exception as e:
                 nomi = {}
                 self._avviso.emit(f"Non riesco a leggere dalla ROM i nomi di luoghi e allenatori ({e})", WARN)
+            try:
+                ent = R.entita(rom)
+            except Exception as e:
+                ent = None
+                self._avviso.emit(f"Non riesco a leggere dalla ROM allenatori e strumenti delle zone ({e})", WARN)
 
             def fatto():
                 if rom == self.emu.rom:
                     L.imposta_dati_rom((inc or {}).get("zona_luogo"), nomi.get("luoghi"), nomi.get("allenatori"))
                     self.c_lotta.imposta_impara(dati)
                     self._incontri_rom = inc
+                    self._entita_rom = ent
                     self._pubblica_squadra()
+                    self._aggiorna_conteggi()
                     if self._ultimo_stato:
                         self._controlla_luogo(self._ultimo_stato, self.cfg["giocatore"])
             self._in_gui.emit(fatto)
@@ -786,9 +811,12 @@ class Finestra(QMainWindow):
         self.barra.tic()
         self.c_obiettivo.aggiorna(st, io)
         self.c_luogo.aggiorna(st, io)
+        self._aggiorna_conteggi()
         self._controlla_luogo(st, io)
         from .scheda import SchedaPokemon
         SchedaPokemon.aggiorna_tutte()
+        if self._mappa is not None and self._mappa.isVisible():
+            self._mappa.imposta(st, io)
         if st["avvisi"]:
             righe = [f"⚠&nbsp;&nbsp;{html.escape(a)}" for a in st["avvisi"][:3]]
             if len(st["avvisi"]) > 3:
@@ -989,6 +1017,9 @@ class Finestra(QMainWindow):
 
     def _gestisci_risposte(self, risposte):
         for x in risposte:
+            if x.get("tipo") == "flag_allenatore":
+                self._calibra_flag_allenatori(x)
+                continue
             if x.get("tipo") == "allenatore_esp":
                 self._esperienza_allenatore(x)
                 continue
@@ -1131,6 +1162,101 @@ class Finestra(QMainWindow):
                            "Ho un backup di quel momento: vuoi ripartire da lì?",
                            si="Riprendi da lì", no="Usa il salvataggio del gioco"):
             self._carica_backup(b)
+
+    # ---------------------------------------------------------------- allenatori e strumenti del luogo
+    def _vinti(self):
+        return set((self.locale.get("vinti") or {}).get(str(self.sincro.run), []))
+
+    def _segna_vinto(self, t):
+        v = dict(self.locale.get("vinti") or {})
+        lista = set(v.get(str(self.sincro.run), []))
+        if t not in lista:
+            lista.add(t)
+            v = {str(self.sincro.run): sorted(lista)}            # solo la run attuale
+            self.locale["vinti"] = v
+            self.locale.salva()
+        self._aggiorna_conteggi()
+
+    def _impara_scarto_script(self, t, zona):
+        """Gli allenatori sulla mappa hanno uno script = scarto + numero dell'allenatore (di solito 3000).
+        Ogni lotta contro un allenatore conferma lo scarto (o lo trova, se in questa ROM è diverso)."""
+        ent = self._entita_rom
+        if not ent or zona is None:
+            return
+        try:
+            x = ent["zone"].get(int(zona))
+        except (TypeError, ValueError):
+            return
+        if not x or not x["script"]:
+            return
+        cand = {sc - int(t) for sc in x["script"]}
+        attuale = self.cfg.get("scarto_script_allenatori", 3000)
+        if attuale in cand:
+            if not self.cfg.get("scarto_confermato"):
+                self.cfg["scarto_confermato"] = True
+                self.cfg.salva()
+            return
+        vecchi = set(self.cfg.get("scarto_candidati") or []) or cand
+        resto = vecchi & cand or cand
+        self.cfg["scarto_candidati"] = sorted(resto)
+        if len(resto) == 1:
+            self.cfg["scarto_script_allenatori"] = next(iter(resto))
+            self._log(f"Allenatori sulla mappa: script = {next(iter(resto))} + numero dell'allenatore", OK)
+        self.cfg.salva()
+        self._aggiorna_conteggi()
+
+    def _flag_acceso(self, i):
+        f = self._flag_evento
+        return bool(f) and 0 <= i // 8 < len(f) and (f[i // 8] >> (i % 8)) & 1 == 1
+
+    def _calibra_flag_allenatori(self, x):
+        """Dopo una lotta vinta lo script dice quali flag si sono accesi: uno di questi è quello dell'allenatore.
+        Il numero del flag meno il numero dell'allenatore è sempre lo stesso: lo si trova incrociando le lotte."""
+        t = int(x.get("allenatore") or 0)
+        cand = {int(b) - t for b in x.get("nuovi") or []}
+        if not cand or self.cfg.get("flag_allenatori") is not None:
+            return
+        vecchi = set(self.cfg.get("flag_allenatori_cand") or [])
+        resto = (vecchi & cand) if vecchi else cand
+        if not resto:
+            resto = cand
+        self.cfg["flag_allenatori_cand"] = sorted(resto)
+        if len(resto) == 1:
+            self.cfg["flag_allenatori"] = next(iter(resto))
+            self._log("Allenatori battuti: ora li leggo direttamente dal gioco", OK)
+        self.cfg.salva()
+        self._aggiorna_conteggi()
+
+    def _conteggi(self, luogo):
+        from . import rom as R
+        ent = self._entita_rom
+        if not ent or luogo is None or not str(luogo).isdigit():
+            return None
+        n_all = (max(L.NOMI_ALLENATORI) + 1) if L.NOMI_ALLENATORI else 1000
+        d = R.per_luogo(ent, int(luogo), self.cfg.get("scarto_script_allenatori", 3000), n_all)
+        base = self.cfg.get("flag_allenatori")
+        vinti = self._vinti()
+        battuti = [t for t in d["allenatori"] if t in vinti or (base is not None and self._flag_acceso(base + t))]
+        presi = [f for f in d["strumenti"] if self._flag_acceso(f)] if self._flag_evento else None
+        return {"allenatori": len(d["allenatori"]), "battuti": len(battuti), "strumenti": len(d["strumenti"]),
+                "presi": None if presi is None else len(presi), "dal_gioco": base is not None}
+
+    def _aggiorna_conteggi(self):
+        st = self._ultimo_stato
+        if not st:
+            return
+        x = st["giocatori"].get(self.cfg["giocatore"]) or {}
+        self.c_luogo.imposta_conteggi(self._conteggi(x.get("luogo_attuale")))
+
+    def _apri_mappa(self):
+        from .mappa import DialogoMappa
+        if self._mappa is None:
+            self._mappa = DialogoMappa(self)
+        if self._ultimo_stato:
+            self._mappa.imposta(self._ultimo_stato, self.cfg["giocatore"])
+        self._mappa.show()
+        self._mappa.raise_()
+        self._mappa.activateWindow()
 
     def _scheda_pokemon(self, chiave):
         from .scheda import SchedaPokemon

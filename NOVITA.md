@@ -1,3 +1,4 @@
-- Tracker della lotta: segue da solo chi è in campo, da entrambe le parti (anche quando l'allenatore manda il Pokémon successivo o tu cambi il tuo). PS, PP e modifiche alle statistiche del tuo Pokémon in campo sono in tempo reale.
-- Nel tracker della lotta ci sono le statistiche del tuo Pokémon (con la natura e le modifiche in lotta). Della prossima mossa da imparare resta solo tra quanti livelli arriva, non quale.
-- Scheda dei Pokémon: clicca un Pokémon nelle Coppie, anche di un amico, per vedere statistiche, natura, abilità, mosse ed esperienza. Si aggiorna da sola. Le correzioni a mano sono nel pulsante "Correggi…" della scheda.
+- Tracker della lotta più leggibile: un riquadro per il tuo Pokémon con barra dei PS e statistiche in caselle, l'abilità su una riga a parte e le mosse in quattro riquadri colorati col tipo, come nel gioco.
+- Obiettivi rifatti: solo le 20 lotte importanti del gioco, nell'ordine vero della storia e col luogo di ognuna. Tolti tappe, piccole sfide e traguardi bonus. Corretti anche Mirton e Marzio (erano scambiati) e il rivale al PWT.
+- Mappa di Unima: una piccola mappa nel riquadro "Prossimo obiettivo", centrata su di te e sul prossimo obiettivo; cliccandola si apre la mappa grande con tutti gli obiettivi e dove si trova ognuno di voi.
+- "Dove sei" mostra quanti allenatori ci sono ancora da battere e quanti strumenti da raccogliere nel luogo.

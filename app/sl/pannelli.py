@@ -5,7 +5,7 @@ from datetime import datetime
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QIcon
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QProgressBar,
+                               QListWidget, QListWidgetItem, QMenu, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
                                QScrollArea, QTableWidget, QTableWidgetItem, QTreeWidget, QTreeWidgetItem, QVBoxLayout,
                                QWidget)
 
@@ -268,105 +268,85 @@ def durata_breve(sec):
     return f"{h}:{r // 60:02d}" if h else f"{r // 60}m"
 
 
-class PannelloObiettivi(QTreeWidget):
-    """Tappe della storia con i loro sotto-obiettivi (con i tempi dall'inizio della run) e i traguardi bonus."""
+class PannelloObiettivi(QWidget):
+    """Gli obiettivi veri del gioco, in ordine di storia, con chi li ha già fatti (doppio clic su una casella per
+    segnarlo o toglierlo a mano). La mappa di Unima si apre in una finestra a parte."""
 
-    def __init__(self, azione):
+    def __init__(self, azione, io, apri_mappa):
         super().__init__()
-        self.azione = azione
-        self.setRootIsDecorated(True)
-        self.setIndentation(18)
-        self.setUniformRowHeights(False)
-        self.setFrameShape(QFrame.NoFrame)
-        self.setFocusPolicy(Qt.NoFocus)
-        self.setAlternatingRowColors(False)
-        self.itemDoubleClicked.connect(self._doppio)
-        self.itemExpanded.connect(lambda it: (self._aperte.add(it.data(0, Qt.UserRole)), self._chiuse.discard(it.data(0, Qt.UserRole))))
-        self.itemCollapsed.connect(lambda it: (self._chiuse.add(it.data(0, Qt.UserRole)), self._aperte.discard(it.data(0, Qt.UserRole))))
+        self.azione, self.io = azione, io
+        v = QVBoxLayout(self)
+        v.setContentsMargins(0, 6, 0, 0)
+        v.setSpacing(6)
+        testa = QHBoxLayout()
+        testa.setContentsMargins(10, 0, 10, 0)
+        self.l_info = QLabel("")
+        self.l_info.setWordWrap(True)
+        testa.addWidget(self.l_info, 1)
+        b = QPushButton("Apri la mappa di Unima")
+        b.setToolTip("Dove sono gli obiettivi e dove siete adesso")
+        b.clicked.connect(apri_mappa)
+        testa.addWidget(b)
+        v.addLayout(testa)
+        self.lista = QTreeWidget()
+        self.lista.setRootIsDecorated(False)
+        self.lista.setFrameShape(QFrame.NoFrame)
+        self.lista.setFocusPolicy(Qt.NoFocus)
+        self.lista.itemDoubleClicked.connect(self._doppio)
+        v.addWidget(self.lista, 1)
         self._firma = None
-        self._G = []
-        self._fatti = {}
-        self._aperte = set()    # tappe aperte a mano
-        self._chiuse = set()    # tappe chiuse a mano
+        self._G, self._fatti = [], {}
 
     def aggiorna(self, st):
-        firma = repr(st.get("fatti")) + repr(st.get("traguardi")) + repr(list(st["giocatori"]))
-        if firma == self._firma or "tappe" not in st:
+        io = self.io()
+        po = ((st["giocatori"].get(io) or {}).get("prossimo") or {})
+        nf = len((st.get("fatti") or {}).get(io, {}))
+        self.l_info.setText(f"<span style='color:{TENUE}'>Obiettivi del gioco in ordine di storia · tu ne hai fatti</span> "
+                            f"<b>{nf}/{len(st.get('obiettivi') or [])}</b>"
+                            + (f" <span style='color:{TENUE}'>· prossimo:</span> <b style='color:#b9a8ff'>{po['nome']}</b>" if po else ""))
+        firma = repr(st.get("fatti")) + repr(list(st["giocatori"])) + repr([o["id"] for o in st.get("obiettivi") or []]) + repr(po.get("id"))
+        if firma == self._firma:
             return
         self._firma = firma
-        self.blockSignals(True)
         self._G, self._fatti = list(st["giocatori"]), st.get("fatti", {})
         inizio = st.get("iniziata") or 0
-        self.clear()
-        self.setColumnCount(len(self._G) + 1)
-        self.setHeaderLabels(["Obiettivo"] + self._G)
+        L = self.lista
+        L.clear()
+        L.setColumnCount(len(self._G) + 2)
+        L.setHeaderLabels(["Obiettivo", "Dove"] + self._G)
         colori = colori_giocatori(st)
         for i, g in enumerate(self._G):
-            self.headerItem().setForeground(i + 1, QColor(colori.get(g, ACC)))
-        h = self.header()
+            L.headerItem().setForeground(i + 2, QColor(colori.get(g, ACC)))
+        h = L.header()
         h.setStretchLastSection(False)
         h.setSectionResizeMode(0, QHeaderView.Stretch)
-        for c in range(1, len(self._G) + 1):
+        for c in range(1, len(self._G) + 2):
             h.setSectionResizeMode(c, QHeaderView.ResizeToContents)
-        voci = st["voci"]
-        corrente = None
-        for n, t in enumerate(st["tappe"], 1):
-            fatte = {g: sum(1 for v in t["voci"] if self._fatti.get(g, {}).get(v)) for g in self._G}
-            tutte = len(t["voci"])
-            padre = QTreeWidgetItem([f"Tappa {n} · {t['nome']}   ({t['luogo']})"] + [f"{fatte[g]}/{tutte}" for g in self._G])
-            padre.setData(0, Qt.UserRole, t["id"])
-            f = padre.font(0)
-            f.setBold(True)
-            padre.setFont(0, f)
-            for c, g in enumerate(self._G, 1):
-                padre.setForeground(c, QColor(OK if fatte[g] == tutte else (WARN if fatte[g] else TENUE)))
-                padre.setTextAlignment(c, Qt.AlignCenter)
-            for vid in t["voci"]:
-                v = voci[vid]
-                figlio = QTreeWidgetItem([f"{v['nome']}   ·  {TIPI_OB.get(v['tipo'], v['tipo'])}"])
-                figlio.setData(0, Qt.UserRole, vid)
-                for c, g in enumerate(self._G, 1):
-                    x = self._fatti.get(g, {}).get(vid)
-                    figlio.setText(c, f"✓ +{durata_breve(x['t'] - inizio)}" if x else "—")
-                    figlio.setForeground(c, QColor(OK if x else TENUE))
-                    figlio.setTextAlignment(c, Qt.AlignCenter)
-                    figlio.setToolTip(c, f"Completato dopo {durata_breve(x['t'] - inizio)} dall'inizio della run" if x else "Doppio clic per segnarlo a mano")
-                padre.addChild(figlio)
-            self.addTopLevelItem(padre)
-            in_corso = corrente is None and any(fatte[g] < tutte for g in self._G)
-            if in_corso:
-                corrente = padre
-            # la tappa in corso resta aperta (se non l'hai chiusa tu); le altre solo se le hai aperte
-            if t["id"] in self._aperte or (in_corso and t["id"] not in self._chiuse):
-                padre.setExpanded(True)
-        # traguardi
-        tr = st.get("traguardi", {})
-        padre = QTreeWidgetItem([f"Traguardi bonus"] + [f"{len(tr.get(g, {}))}/{len(st['traguardi_def'])}" for g in self._G])
-        padre.setData(0, Qt.UserRole, "traguardi")
-        f = padre.font(0)
-        f.setBold(True)
-        padre.setFont(0, f)
-        padre.setForeground(0, QColor(ORO))
-        for c in range(1, len(self._G) + 1):
-            padre.setTextAlignment(c, Qt.AlignCenter)
-        for d in st["traguardi_def"]:
-            figlio = QTreeWidgetItem([f"{d['nome']}  —  {d['desc']}"])
-            for c, g in enumerate(self._G, 1):
-                x = tr.get(g, {}).get(d["id"])
-                figlio.setText(c, f"★ +{durata_breve(x['t'] - inizio)}" if x else "—")
-                figlio.setForeground(c, QColor(ORO if x else TENUE))
-                figlio.setTextAlignment(c, Qt.AlignCenter)
-            padre.addChild(figlio)
-        self.addTopLevelItem(padre)
-        if "traguardi" not in self._chiuse:
-            padre.setExpanded(True)
-        self.blockSignals(False)
+        from . import logica as LG
+        for o in st.get("obiettivi") or []:
+            tipo = TIPI_OB.get(o["tipo"], o["tipo"]) + (f" {o['medaglia']}" if o.get("medaglia") else "")
+            it = QTreeWidgetItem([f"{o['nome']}   ·  {tipo}", LG.nome_luogo(o["luogo"]) if o.get("luogo") is not None else ""])
+            it.setData(0, Qt.UserRole, o["id"])
+            it.setForeground(1, QColor(TENUE))
+            for c, g in enumerate(self._G, 2):
+                x = self._fatti.get(g, {}).get(o["id"])
+                it.setText(c, f"✓ +{durata_breve(x['t'] - inizio)}" if x else "—")
+                it.setForeground(c, QColor(OK if x else TENUE))
+                it.setTextAlignment(c, Qt.AlignCenter)
+                it.setToolTip(c, f"Fatto dopo {durata_breve(x['t'] - inizio)} dall'inizio della run" if x else "Doppio clic per segnarlo a mano")
+            if po and o["id"] == po.get("id"):
+                f = it.font(0)
+                f.setBold(True)
+                it.setFont(0, f)
+                it.setForeground(0, QColor("#b9a8ff"))
+            L.addTopLevelItem(it)
+        L.setToolTip("Doppio clic su una casella per segnare o togliere un obiettivo a mano")
 
     def _doppio(self, it, col):
         vid = it.data(0, Qt.UserRole)
-        if col < 1 or it.parent() is None or not vid:      # solo i sotto-obiettivi delle tappe
+        if col < 2 or not vid:
             return
-        g = self._G[col - 1]
+        g = self._G[col - 2]
         fatto = bool(self._fatti.get(g, {}).get(vid))
         nome_v = it.text(0).split("   ·")[0]
         if dialoghi.chiedi(self, f"{'Annullare' if fatto else 'Segnare come fatto'} «{nome_v}» per {g}?", "",
@@ -402,7 +382,7 @@ class PannelloStatistiche(QScrollArea):
         griglia = QGridLayout()
         griglia.setHorizontalSpacing(18)
         griglia.setVerticalSpacing(8)
-        intest = ["", "Catture", "Persi", "Vivi", "Obiettivi", "Traguardi", "Il più forte"]
+        intest = ["", "Catture", "Persi", "Vivi", "Obiettivi", "Il più forte"]
         for c, t in enumerate(intest):
             l = QLabel(f"<span style='color:{TENUE};font-size:8.5pt;font-weight:600'>{t}</span>")
             griglia.addWidget(l, 0, c)
@@ -414,7 +394,7 @@ class PannelloStatistiche(QScrollArea):
             n_ob = len((st.get("fatti") or {}).get(g, {}))
             n_tr = len((st.get("traguardi") or {}).get(g, {}))
             celle = [f"<span style='color:{colori_giocatori(st).get(g, ACC)}'>●</span>&nbsp; <b>{g}</b>", str(len(suoi)), f"<span style='color:{KO if morti else TENUE}'>{morti}</span>", str(vivi),
-                     f"{n_ob}/{tot_ob}", f"<span style='color:{ORO}'>{n_tr}</span>/{len(st.get('traguardi_def') or [])}",
+                     f"{n_ob}/{tot_ob}",
                      f"{nome(forte)} Lv.{forte.get('livello')}" if forte else "—"]
             for c, t in enumerate(celle):
                 griglia.addWidget(QLabel(t), r, c)

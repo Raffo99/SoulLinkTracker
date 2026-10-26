@@ -34,33 +34,35 @@ TEMPO_PAUSA = 90          # secondi senza battiti oltre i quali il tempo della r
 LEVEL_CAP = [13, 18, 24, 30, 33, 39, 48, 51, 58, 59]
 NOMI_CAP = ["Komor", "Velia", "Artemisio", "Camelia", "Rafan", "Anemone", "Aristide", "Ciprian", "Superquattro", "Iris"]
 
-# obiettivi principali: ID allenatore (Nero 2 / Bianco 2, dal NDS Ironmon Tracker); "asso" = livello del Pokemon più forte
+# obiettivi principali: ID allenatore (Nero 2 / Bianco 2, dal NDS Ironmon Tracker)
 OBIETTIVI = [
-    {"id": "rivale1", "nome": "Rivale (prima lotta)", "tipo": "rivale", "ids": [161, 162, 163]},
-    {"id": "cheren", "nome": "Komor", "tipo": "palestra", "medaglia": 1, "ids": [156]},
-    {"id": "rivale2", "nome": "Rivale (Fattoria di Venturia)", "tipo": "rivale", "ids": [166, 167, 168]},
-    {"id": "rosy", "nome": "Velia", "tipo": "palestra", "medaglia": 2, "ids": [157]},
-    {"id": "artemisio", "nome": "Artemisio", "tipo": "palestra", "medaglia": 3, "ids": [154]},
-    {"id": "camelia", "nome": "Camelia", "tipo": "palestra", "medaglia": 4, "ids": [153]},
-    {"id": "rafan", "nome": "Rafan", "tipo": "palestra", "medaglia": 5, "ids": [158]},
-    {"id": "anisia", "nome": "Anemone", "tipo": "palestra", "medaglia": 6, "ids": [155]},
-    {"id": "rivale3", "nome": "Rivale (Fregata Plasma)", "tipo": "rivale", "ids": [368, 369, 370]},
-    {"id": "aristide", "nome": "Aristide", "tipo": "palestra", "medaglia": 7, "ids": [159]},
-    {"id": "acromio", "nome": "Acromio", "tipo": "plasma", "ids": [344]},
-    {"id": "ghecis", "nome": "Ghecis", "tipo": "plasma", "ids": [345]},
-    {"id": "rivale4", "nome": "Rivale (Spiraria)", "tipo": "rivale", "ids": [378, 379, 380]},
-    {"id": "ciprian", "nome": "Ciprian", "tipo": "palestra", "medaglia": 8, "ids": [160]},
-    {"id": "rivale5", "nome": "Rivale (Via Vittoria)", "tipo": "rivale", "ids": [684, 685, 686]},
-    {"id": "antea", "nome": "Antemia", "tipo": "lega", "ids": [38]},
-    {"id": "marzio", "nome": "Marzio", "tipo": "lega", "ids": [39]},
-    {"id": "mirton", "nome": "Mirton", "tipo": "lega", "ids": [40]},
-    {"id": "catlina", "nome": "Catlina", "tipo": "lega", "ids": [41]},
-    {"id": "iris", "nome": "Iris (Campionessa)", "tipo": "campione", "ids": [341]},
+    # in ordine di storia (Nero 2 / Bianco 2); "luogo" = indice del nome del luogo dove si combatte
+    {"id": "rivale1", "nome": "Rivale (prima lotta)", "tipo": "rivale", "ids": [161, 162, 163], "luogo": 117},
+    {"id": "rivale2", "nome": "Rivale (Fattoria di Venturia)", "tipo": "rivale", "ids": [166, 167, 168], "luogo": 130},
+    {"id": "cheren", "nome": "Komor", "tipo": "palestra", "medaglia": 1, "ids": [156], "luogo": 117},
+    {"id": "rosy", "nome": "Velia", "tipo": "palestra", "medaglia": 2, "ids": [157], "luogo": 118},
+    {"id": "artemisio", "nome": "Artemisio", "tipo": "palestra", "medaglia": 3, "ids": [154], "luogo": 8},
+    {"id": "camelia", "nome": "Camelia", "tipo": "palestra", "medaglia": 4, "ids": [153], "luogo": 9},
+    {"id": "rafan", "nome": "Rafan", "tipo": "palestra", "medaglia": 5, "ids": [158], "luogo": 10},
+    {"id": "rivale3", "nome": "Rivale (Torneo PWT)", "tipo": "rivale", "ids": [368, 369, 370], "luogo": 36},
+    {"id": "anisia", "nome": "Anemone", "tipo": "palestra", "medaglia": 6, "ids": [155], "luogo": 11},
+    {"id": "rivale4", "nome": "Rivale (Spiraria)", "tipo": "rivale", "ids": [378, 379, 380], "luogo": 42},
+    {"id": "aristide", "nome": "Aristide", "tipo": "palestra", "medaglia": 7, "ids": [159], "luogo": 13},
+    {"id": "ciprian", "nome": "Ciprian", "tipo": "palestra", "medaglia": 8, "ids": [160], "luogo": 119},
+    {"id": "acromio", "nome": "Acromio", "tipo": "plasma", "ids": [344], "luogo": 61},
+    {"id": "ghecis", "nome": "Ghecis", "tipo": "plasma", "ids": [345], "luogo": 61},
+    {"id": "rivale5", "nome": "Rivale (Via Vittoria)", "tipo": "rivale", "ids": [684, 685, 686], "luogo": 134},
+    {"id": "antea", "nome": "Antemia", "tipo": "lega", "ids": [38], "luogo": 44},
+    {"id": "mirton", "nome": "Mirton", "tipo": "lega", "ids": [39], "luogo": 44},
+    {"id": "marzio", "nome": "Marzio", "tipo": "lega", "ids": [40], "luogo": 44},
+    {"id": "catlina", "nome": "Catlina", "tipo": "lega", "ids": [41], "luogo": 44},
+    {"id": "iris", "nome": "Iris (Campionessa)", "tipo": "campione", "ids": [341], "luogo": 44},
 ]
 OBIETTIVO_DA_ID = {i: o for o in OBIETTIVI for i in o["ids"]}
 
-# ---- novita' (tappe, sfide, traguardi). EXTRA = False riporta alle sole regole di base (usato nei test di confronto)
+# ---- novita' (tempo della run, ecc.). EXTRA = False riporta alle sole regole di base (usato nei test di confronto)
 EXTRA = True
+BONUS = False             # tappe, sfide e traguardi bonus: tolti (si seguono solo gli obiettivi veri del gioco)
 
 # piccole sfide automatiche dentro le tappe
 SFIDE = [
@@ -547,7 +549,7 @@ def aggiorna_da_gioco(s, ora, d):
                 _completa_obiettivo(s, ora, g, o, "lotta")
 
     _allinea_legami(s, ora)
-    if EXTRA and s["stato"] == "in_corso":
+    if EXTRA and BONUS and s["stato"] == "in_corso":
         _controlla_extra(s, ora, g, medaglie_prima, livelli_prima)
 
     # 3) legami: partner nel box
@@ -757,6 +759,12 @@ def prossimo_obiettivo(s, g):
     mio = (s.get("obiettivi") or {}).get(g) or {}
     if not EXTRA:
         return next((o for o in OBIETTIVI if not mio.get(o["id"])), None)
+    if not BONUS:
+        for n, o in enumerate(OBIETTIVI, 1):
+            if not mio.get(o["id"]):
+                return {**{k: o[k] for k in ("id", "nome", "tipo", "medaglia", "luogo") if k in o},
+                        "luogo_nome": nome_luogo(o["luogo"]), "n": n, "tot": len(OBIETTIVI)}
+        return None
     for i, t in enumerate(TAPPE):
         mancanti = [v for v in t["voci"] if not mio.get(v)]
         if mancanti:
@@ -849,9 +857,10 @@ def vista(s, ora):
         "incontri": [{**e, "nome_specie": info(e["specie"])["nome"] if e["specie"] else "—", "luogo_nome": nome_luogo(luogo_incontro(s, e))}
                      for e in list(reversed(s["incontri"][-80:]))],
         "eventi": list(reversed(s["eventi"][-80:])), "storico": s["storico"], "luoghi": LUOGHI,
-        "obiettivi": [{k: o[k] for k in ("id", "nome", "tipo", "medaglia") if k in o} for o in OBIETTIVI],
+        "obiettivi": [{k: o[k] for k in ("id", "nome", "tipo", "medaglia") + (("luogo",) if EXTRA else ()) if k in o}
+                      for o in OBIETTIVI],
         "fatti": s.get("obiettivi") or {},
-        **({"tappe": TAPPE, "voci": VOCI, "traguardi_def": TRAGUARDI, "traguardi": s.get("traguardi") or {}} if EXTRA else {}),
+        **({"tappe": TAPPE, "voci": VOCI, "traguardi_def": TRAGUARDI, "traguardi": s.get("traguardi") or {}} if EXTRA and BONUS else {}),
     }
 
 

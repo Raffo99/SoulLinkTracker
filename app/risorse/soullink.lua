@@ -76,6 +76,7 @@ local OFF = {
   conta_squadra = 0x19724, squadra = 0x19728, zona = 0x41B5C, zona_padre = 0x41B44,
   allenatore_nemico = 0x5262E, nemico = 0x53B70, medaglie = 0x21A24,
   lotta_dati = 0x526A8,     -- puntatori ai Pokemon in campo durante la lotta (BTL_POKEPARAM), dall'Ironmon Tracker
+  flag_evento = 0x19724 - 0x18E04 + 0x1FF00 + 0x35E,   -- flag degli eventi (blocco EventWork del salvataggio, PKHeX)
   box = 0x19724 - 0x18E04 + 0x400,   -- il PC in RAM ha la stessa disposizione del salvataggio
   medicine = 0x19724 - 0x18E04 + 0x18BD8,   -- tasca Medicine della borsa (salvataggio 0x18400 + 0x7D8, 48 posti)
 }
@@ -746,11 +747,53 @@ local function firma_dettagli(d)
 end
 local ultima_firma_dettagli = nil
 
+-- flag degli eventi del gioco (strumenti raccolti, allenatori battuti...): 0x17F byte
+local N_FLAG = 0x17F
+local function leggi_flag()
+  if not A.flag_evento or not valido_addr(A.flag_evento) then return nil end
+  local t = {}
+  if memory.read_bytes_as_array then
+    t = memory.read_bytes_as_array(A.flag_evento, N_FLAG, DOM)
+  else
+    for i = 0, N_FLAG - 1 do t[i + 1] = r8(A.flag_evento + i) end
+  end
+  return t
+end
+local function flag_in_testo(t)
+  if not t then return nil end
+  local h = {}
+  for i = 1, #t do h[i] = string.format("%02x", t[i]) end
+  return table.concat(h)
+end
+local ultima_flag = nil
+local controllo_flag = nil       -- dopo una lotta vinta: quali flag si sono accesi (per capire dove il gioco segna gli allenatori)
+
 local function fine_lotta()
   if lotta.allenatore and not lotta.chiusa then
     lotta.chiusa = true
-    coda[#coda + 1] = { tipo = "fine_allenatore", allenatore = lotta.allenatore, vinta = squadra_viva() }
+    local vinta = squadra_viva()
+    coda[#coda + 1] = { tipo = "fine_allenatore", allenatore = lotta.allenatore, vinta = vinta }
+    if APP and vinta and lotta.flag_prima then
+      controllo_flag = { allenatore = lotta.allenatore, prima = lotta.flag_prima, quando = emu.framecount() + 240 }
+    end
   end
+end
+local function verifica_flag(fc)
+  if not controllo_flag or fc < controllo_flag.quando then return end
+  local dopo = leggi_flag()
+  if dopo then
+    local nuovi = {}
+    for i = 1, math.min(#dopo, #controllo_flag.prima) do
+      local acceso = dopo[i] & (~controllo_flag.prima[i]) & 0xFF
+      for b = 0, 7 do
+        if (acceso >> b) & 1 == 1 then nuovi[#nuovi + 1] = (i - 1) * 8 + b end
+      end
+    end
+    if #nuovi > 0 and #nuovi <= 64 then
+      coda_app[#coda_app + 1] = { tipo = "flag_allenatore", allenatore = controllo_flag.allenatore, nuovi = nuovi }
+    end
+  end
+  controllo_flag = nil
 end
 
 -- all'inizio di una lotta (quando si sa se e' un selvatico): quanta esperienza dare
@@ -825,7 +868,7 @@ local function aggiorna_lotta(fc)
     lotta.letto = true
     local all = r16(A.allenatore_nemico)
     diag.allenatore, diag.nemico = all, lotta.nemico.specie
-    if all ~= 0 then lotta.allenatore = all end
+    if all ~= 0 then lotta.allenatore = all; lotta.flag_prima = leggi_flag() end
     prepara_esperienza()
     if all == 0 then
       local n = lotta.nemico
@@ -1015,8 +1058,11 @@ while true do
       local fa = firma_attivita(att)
       local det = APP and att.lotta and dettagli_lotta() or nil
       local fd = firma_dettagli(det)
+      local ff = APP and flag_in_testo(leggi_flag()) or nil
+      verifica_flag(fc)
       local da_mandare = (#coda > 0) or (squadra and fs ~= ultima_firma) or (fb and fb ~= ultima_firma_box)
                          or (APP and fa ~= ultima_attivita) or #coda_app > 0 or (APP and fd ~= ultima_firma_dettagli)
+                         or (ff and ff ~= ultima_flag)
       if da_mandare and not pendente_da then pendente_da = fc elseif not da_mandare then pendente_da = nil end
       -- le richieste bloccano l'emulatore per un attimo: le facciamo quando non stai premendo tasti
       -- con l'app la richiesta e' locale e istantanea: niente attese
@@ -1028,6 +1074,7 @@ while true do
         local dati = { attivo = true, run_rom = run_rom, medaglie = diag.medaglie, zona = diag.zona, attivita = att }
         ultima_attivita = fa
         if APP and fd ~= ultima_firma_dettagli then dati.lotta_dettagli = det or false; ultima_firma_dettagli = fd end
+        if ff and ff ~= ultima_flag then dati.flag_evento = ff; ultima_flag = ff end
         if squadra and fs ~= ultima_firma then dati.squadra = squadra end
         if fb and fb ~= ultima_firma_box then dati.squadra = squadra; dati.box = box; dati.box_ok = true end
         if #coda > 0 then dati.eventi = coda end

@@ -238,3 +238,64 @@ def prossime(mosse: list, livello: int) -> dict:
     prossima = future[0] if future else None
     return {"totale": len({m for _, m in mosse}), "mancano": len(future),
             "prossima": prossima, "tra": (prossima[0] - livello) if prossima else None}
+
+
+# ---------- allenatori e strumenti di ogni zona (oggetti della mappa) ----------
+PERCORSO_ENTITA = "a/1/2/6"          # Nero 2 / Bianco 2: NPC, strumenti, teletrasporti di ogni zona (CTRMap: FIELD_ZONE_ENTITIES)
+TIPO_STRUMENTO = 4                   # tipo di evento delle Poké Ball con uno strumento a terra
+
+
+def entita(rom) -> dict:
+    """{"zone": {zona: {"script": [script degli NPC], "strumenti": [flag delle Poké Ball a terra]}},
+        "luogo": {zona: indice del nome del luogo}}. Gli allenatori si ricavano dagli script (vedi allenatori_in)."""
+    rom = Path(rom)
+    chiave = ("entita", str(rom), rom.stat().st_mtime, rom.stat().st_size)
+    if chiave in _cache:
+        return _cache[chiave]
+    with open(rom, "rb") as f:
+        mappe = _narc(_file_nds(f, PERCORSO_MAPPE))[0]
+        file = _narc(_file_nds(f, PERCORSO_ENTITA))
+    zone, luogo = {}, {}
+    letti = {}
+    for zona in range(len(mappe) // 48):
+        base = zona * 48
+        idx = struct.unpack_from("<H", mappe, base + 0x16)[0]
+        luogo[zona] = mappe[base + 26]
+        if idx >= len(file):
+            continue
+        if idx not in letti:
+            d = file[idx]
+            script, strumenti = [], []
+            if len(d) >= 8:
+                n_mob, n_npc = d[4], d[5]
+                p = 8 + n_mob * 0x14
+                for i in range(n_npc):
+                    if p + 0x24 > len(d):
+                        break
+                    tipo, flag, scr = struct.unpack_from("<HHH", d, p + 6)
+                    if tipo == TIPO_STRUMENTO:
+                        if flag:
+                            strumenti.append(flag)
+                    else:
+                        script.append(scr)
+                    p += 0x24
+            letti[idx] = {"script": script, "strumenti": strumenti}
+        zone[zona] = letti[idx]
+    out = {"zone": zone, "luogo": luogo}
+    _metti_in_cache(chiave, out)
+    return out
+
+
+def per_luogo(ent: dict, luogo: int, scarto: int, n_allenatori: int) -> dict:
+    """Allenatori (id) e strumenti (flag) di tutte le zone con quel nome di luogo; script = scarto + id allenatore."""
+    allenatori, strumenti = set(), set()
+    for z, l in ent["luogo"].items():
+        if l != luogo or z not in ent["zone"]:
+            continue
+        x = ent["zone"][z]
+        strumenti.update(x["strumenti"])
+        for s in x["script"]:
+            t = s - scarto
+            if 0 < t < n_allenatori:
+                allenatori.add(t)
+    return {"allenatori": sorted(allenatori), "strumenti": sorted(strumenti)}
