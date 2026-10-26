@@ -621,7 +621,8 @@ class Finestra(QMainWindow):
             reg = st.get("regole") or {}
             righe.append("MODO allenatori" if reg.get("solo_allenatori") else "MODO normale")
             righe.append(f"CONDIVIDI {1 if reg.get('condividi_esp') else 0}")
-            righe.append(f"CONTROLLO {1 if self._controllo_esp_attivo(reg) else 0}")
+            righe.append(f"CONTROLLO {1 if self._controllo_esp_attivo(reg) else 0}"
+                         + (" cap" if reg.get("cap_bloccato") else ""))
         return "\n".join(righe) + "\n"
 
     def _imposta_velocita(self, v):
@@ -693,6 +694,8 @@ class Finestra(QMainWindow):
             nome_m = next((p.get("soprannome") or L.info(p["specie"])["nome"] for p in self._squadra_gioco
                            if p.get("pid") == m.get("pid")), "")
             self._controlla_critico(self.cfg["giocatore"], {**m, "nome": nome_m}, det.get("allenatore"))
+        else:
+            self._controlla_esperienza(None)
         self._pubblica_squadra()
         if self._ultimo_stato:
             self.p_coppie.aggiorna(self._con_dati_vivi(self._ultimo_stato), self.cfg["giocatore"])
@@ -1174,10 +1177,10 @@ class Finestra(QMainWindow):
                 continue
             if x.get("tipo") == "esp_sito":
                 if x.get("ok"):
-                    self._log(f"Esperienza solo dagli allenatori: codice del gioco trovato (0x{x.get('indirizzo', 0):06X})", OK)
+                    self._log(f"Regole sull'esperienza: codice del gioco trovato (0x{x.get('indirizzo', 0):06X})", OK)
                 else:
-                    self._log("Esperienza solo dagli allenatori: non trovo il calcolo dell'esperienza in questa ROM", KO)
-                    dialoghi.avviso(self, "Modalità non disponibile su questa ROM",
+                    self._log("Regole sull'esperienza: in questa lotta non ho trovato il calcolo dell'esperienza (riprovo alla prossima)", KO)
+                    dialoghi.avviso(self, "Esperienza non controllata in questa lotta",
                                     "Non trovo nel gioco il punto in cui si calcola l'esperienza, quindi in questa lotta "
                                     "l'esperienza resta normale. Mandami la scheda Sistema: probabilmente serve "
                                     "l'indirizzo giusto per la tua versione.", "avviso")
@@ -1242,7 +1245,10 @@ class Finestra(QMainWindow):
         from . import esperienza as E
         st = self._ultimo_stato or {}
         reg = st.get("regole") or {}
-        if not det or not self._controllo_esp_attivo(reg):
+        if not det:
+            self._esp.update(lotta=None, ultimo=None)     # lotta finita: alla prossima il codice si rimanda sempre
+            return
+        if not self._controllo_esp_attivo(reg):
             return
         nemici = det.get("nemici") or []
         chiave = (det.get("allenatore"), tuple(n.get("specie") for n in nemici))
@@ -1297,10 +1303,17 @@ class Finestra(QMainWindow):
         if codice is None:
             return
         self._esp["previsti"][idx] = prev
-        if codice != self._esp.get("ultimo"):
+        ora = time.monotonic()
+        # si rimanda anche se lo script dice di usare un valore diverso (comando perso, lotta ricominciata, ecc.)
+        diverso = det.get("esp") is not None and det.get("esp") != codice
+        if codice != self._esp.get("ultimo") or (diverso and ora - self._esp.get("inviato", 0) > 1.0):
+            nuovo = codice != self._esp.get("ultimo")
             self._esp["ultimo"] = codice
+            self._esp["inviato"] = ora
             with self._lock:
                 self._comandi_lua.append(f"ESPX {codice}")
+            if not nuovo:
+                return
             testo = "niente" if codice == 0 else (f"×{codice}" if codice > 0 else f"÷{2 ** -codice}")
             self._log(f"Esperienza per il prossimo Pokémon battuto: {testo}" + (f" ({perche})" if perche else ""), TENUE)
 

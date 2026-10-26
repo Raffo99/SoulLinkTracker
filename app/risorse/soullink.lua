@@ -165,12 +165,30 @@ local function sito_candidato(a)
   return r32(a) == ESP_ORIGINALE and (r32(a - 4) == ESP_PRIMA or r32(a - 0x1000) == ESP_FIRMA)
 end
 
+-- ricerca veloce: legge la zona in un colpo solo e cerca i byte delle istruzioni (string.find), niente letture una per una
+local function cerca_byte(da, a, filtro)
+  if not memory.read_bytes_as_binary_string then return false end
+  local ok, x = pcall(memory.read_bytes_as_binary_string, da, a - da, DOM)
+  if not ok or type(x) ~= "string" or #x ~= a - da then return false end
+  local ORIG = string.pack("<I4", ESP_ORIGINALE)
+  local i = 1
+  while true do
+    local j = string.find(x, ORIG, i, true)
+    if not j then return nil end
+    local ind = da + j - 1
+    if ind % 2 == 0 and sito_candidato(ind) and (not filtro or filtro(ind)) then return ind end
+    i = j + 1
+  end
+end
+
 local function cerca_sito_esp()
   -- prima gli indirizzi noti (USA, Giappone) e quello salvato, poi una ricerca nella zona del codice di lotta
-  for _, a in ipairs({ esp_sito or 0, 0x1BD6F8, 0x1BD738, 0x1BD0F8, 0x1BD0D8 }) do
+  for _, a in ipairs({ esp_sito or 0, 0x1BD6F8, 0x1BD738, 0x1BD0F8, 0x1BD0D8, 0x1BD5F8 }) do
     if sito_valido(a) then return a end
   end
-  -- prima vicino agli indirizzi noti (veloce), poi in tutta la zona solo se serve davvero a una regola attiva
+  local veloce = cerca_byte(0x100000, 0x280000)
+  if veloce ~= false then return veloce end
+  -- senza lettura a blocchi: una per una, prima vicino agli indirizzi noti, poi in tutta la zona se serve a una regola
   for a = 0x1B4000, 0x1C8000, 2 do
     if sito_candidato(a) then return a end
   end
@@ -186,14 +204,22 @@ local esp_segnalato = nil                                       -- ultimo esito 
 local esp_ricerche_fallite = 0
 local function assicura_sito_esp()
   if esp_sito and sito_valido(esp_sito) then return true end
-  if lotta.esp_cercato then return false end     -- una ricerca sola per lotta (e' lenta)
-  lotta.esp_cercato = true
+  -- il codice di lotta si carica qualche istante dopo l'inizio (soprattutto con gli allenatori): si riprova ogni
+  -- mezzo secondo per 20 secondi; "non trovato" si dice all'app solo alla fine
+  local fc = emu.framecount()
+  if not lotta.attiva and fc - (lotta.esp_ultima or -9999) < 600 then return false end
+  local lento = not memory.read_bytes_as_binary_string            -- senza lettura a blocchi la ricerca costa molto
+  local max_prove, pausa = lento and 5 or 40, lento and 120 or 30
+  if (lotta.esp_ricerche or 0) >= max_prove or fc - (lotta.esp_ultima or -9999) < pausa then return false end
+  lotta.esp_ricerche = (lotta.esp_ricerche or 0) + 1
+  lotta.esp_ultima = fc
   if not esp_sito and esp_ricerche_fallite >= 3 and not (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP) then return false end
   local trovato = cerca_sito_esp()
   if trovato then esp_sito = trovato elseif not esp_sito then esp_ricerche_fallite = esp_ricerche_fallite + 1 end
   local esito = trovato and ("si" .. trovato) or "no"
   diag.esp_ricerca = esito
-  if esito ~= esp_segnalato and (trovato or (esp_segnalato == nil and (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP))) then
+  local ultima_prova = (lotta.esp_ricerche or 0) >= max_prove
+  if esito ~= esp_segnalato and (trovato or (ultima_prova and esp_segnalato == nil and (SOLO_ALLENATORI or CONDIVIDI_ESP or CONTROLLO_ESP))) then
     esp_segnalato = esito
     coda_app[#coda_app + 1] = { tipo = "esp_sito", ok = trovato ~= nil, indirizzo = trovato }
     if trovato then salva_calibrazione() end
@@ -252,9 +278,9 @@ end
 
 local function applica_condividi()
   if not (cond_sito and cond_valido(cond_sito)) then
-    if lotta.cond_cercato then return false end
+    -- si cerca solo quando il codice di lotta e' caricato (prima non c'e'), una volta sola per lotta
+    if lotta.cond_cercato or not assicura_sito_esp() then return false end
     lotta.cond_cercato = true
-    assicura_sito_esp()
     local trovato = cerca_cond()
     if trovato then cond_sito = trovato; cond_orig = r16(trovato + 4) end
     local esito = trovato and ("si" .. trovato) or "no"
@@ -499,6 +525,7 @@ end
 local stato_rete = { ok = nil, ultimo_msg = -1, run = nil, stato = nil, errore = nil, http_assente = false, ignorato = nil }
 SOLO_ALLENATORI = false         -- modalita' sperimentale: esperienza solo dagli allenatori
 DUMP_LOTTA = false              -- file dove scrivere un'istantanea della memoria durante le lotte con gli allenatori
+CAP_BLOCCATO = false            -- level cap bloccato: finche' l'app non decide, niente esperienza
 CONTROLLO_ESP = false           -- l'app controlla l'esperienza di ogni lotta (level cap bloccato, Condividi ridotto)
 BLOCCA_INPUT = false            -- true quando l'utente sta usando un'altra finestra
 VELOCITA = nil                  -- percentuale impostata dall'app (100 = normale)
@@ -587,10 +614,11 @@ local function invia(dati)
     elseif cmd == "ESPX" then
       -- esperienza per il prossimo Pokemon battuto, calcolata dall'app (cap bloccato, Condividi ridotto, solo allenatori)
       local n = tonumber(resto:match("^(-?%d+)"))
-      if n and lotta.attiva and (SOLO_ALLENATORI or CONTROLLO_ESP) then lotta.molt = n; applica_esp(n) end
+      if n and lotta.attiva and (SOLO_ALLENATORI or CONTROLLO_ESP) then lotta.molt = n; lotta.molt_app = true; applica_esp(n) end
     elseif cmd == "CONTROLLO" then
       local prima = CONTROLLO_ESP
-      CONTROLLO_ESP = resto == "1"
+      CONTROLLO_ESP = resto:sub(1, 1) == "1"
+      CAP_BLOCCATO = resto:find("cap", 1, true) ~= nil
       if prima and not CONTROLLO_ESP and not SOLO_ALLENATORI then ripristina_esp(); lotta.molt = nil end
     elseif cmd == "DUMPLOTTA" then
       DUMP_LOTTA = (resto ~= "" and resto) or false
@@ -889,7 +917,8 @@ local function dettagli_lotta()
     lotta.dump_fatto = true
     pcall(scrivi_dump, DUMP_LOTTA, true)
   end
-  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio, squadra = vivi }
+  return { allenatore = lotta.allenatore or 0, letto = lotta.letto, nemici = nemici, mio = mio, squadra = vivi,
+           esp = lotta.molt, esp_codice = esp_sito and sito_valido(esp_sito) or false }
 end
 local function firma_dettagli(d)
   if not d then return "-" end
@@ -902,6 +931,7 @@ local function firma_dettagli(d)
     t[#t + 1] = d.mio.pid .. ":" .. d.mio.ps .. ":" .. table.concat(d.mio.pp, ",") .. ":" .. table.concat(d.mio.stadi, ",")
   end
   for _, m in ipairs(d.squadra or {}) do t[#t + 1] = m.pid .. "/" .. m.ps .. "/" .. m.stato end
+  t[#t + 1] = tostring(d.esp) .. "/" .. tostring(d.esp_codice)
   return table.concat(t, ";")
 end
 local ultima_firma_dettagli = nil
@@ -1008,8 +1038,9 @@ local function prepara_esperienza()
   assicura_sito_esp()
   if CONDIVIDI_ESP then lotta.condividi = true; applica_condividi() end
   if not (SOLO_ALLENATORI or CONTROLLO_ESP) then lotta.molt = nil; return end
-  -- finche' l'app non risponde: niente (solo allenatori) oppure normale (solo controllo del cap / Condividi)
-  lotta.molt = SOLO_ALLENATORI and 0 or 1
+  -- finche' l'app non risponde: niente (solo allenatori o cap bloccato) oppure normale (solo Condividi ridotto).
+  -- Se l'app ha gia' risposto per questa lotta, la sua risposta resta.
+  if not lotta.molt_app then lotta.molt = (SOLO_ALLENATORI or CAP_BLOCCATO) and 0 or 1 end
   if lotta.allenatore and SOLO_ALLENATORI then
     local primo, vivi = nil, 0
     for _, m in ipairs(squadra or {}) do

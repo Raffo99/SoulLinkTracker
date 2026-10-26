@@ -6,7 +6,8 @@ from PySide6.QtWidgets import (QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel
 
 from . import logica as L
 from .correzioni import COLORE_STATO, STATI
-from .lotta import NOMI_STAT_LUNGHI, html_impara, mossa, natura, pillola_tipo, stato_di
+from .lotta import (COLORI_CLASSE, NOMI_CLASSE, NOMI_STAT_LUNGHI, html_impara, mossa, natura, pillola_tipo, stato_di,
+                    suggerimento_mossa)
 from .riepilogo import nome
 from .stile import ACC, COLORI_TIPI, KO, OK, ORO, SPENTO, TENUE, TESTO, WARN, alfa
 
@@ -47,7 +48,7 @@ class SchedaPokemon(QDialog):
         self.k = chiave
         self.setWindowTitle("Scheda Pokémon")
         self.setObjectName("dialogo")
-        self.setMinimumWidth(520)
+        self.setMinimumWidth(600)
         self.setAttribute(Qt.WA_DeleteOnClose)
         self.v = QVBoxLayout(self)
         self.v.setContentsMargins(22, 20, 22, 18)
@@ -221,7 +222,7 @@ class SchedaPokemon(QDialog):
         g = QGridLayout()
         g.setHorizontalSpacing(14)
         g.setVerticalSpacing(5)
-        intest = ["Mossa", "Tipo", "Categoria", "Potenza", "Precisione", "PP"]
+        intest = ["Mossa", "Tipo", "Categoria", "Potenza", "Prec.", "PP", "Effetto"]
         for c, t in enumerate(intest):
             g.addWidget(QLabel(f"<span style='color:{SPENTO};font-size:8pt'>{t.upper()}</span>"), 0, c)
         r = 1
@@ -230,12 +231,22 @@ class SchedaPokemon(QDialog):
             if not mo:
                 continue
             stab = mo["tipo"] in (L.info(d["specie"]).get("tipi") or []) and mo["classe"] != 0
-            g.addWidget(QLabel(f"<b>{mo['nome']}</b>" + (f"&nbsp;<span style='color:{ORO}'>★</span>" if stab else "")), r, 0)
+            cc = COLORI_CLASSE.get(mo["classe"], TENUE)
+            nome = QLabel(f"<b>{mo['nome']}</b>" + (f"&nbsp;<span style='color:{ORO}'>★</span>" if stab else ""))
+            nome.setToolTip(suggerimento_mossa(mo))
+            nome.setMinimumWidth(nome.sizeHint().width())
+            g.addWidget(nome, r, 0)
             g.addWidget(QLabel(pillola_tipo(mo["tipo"])), r, 1)
-            g.addWidget(QLabel(f"<span style='color:{TENUE}'>{['stato', 'fisica', 'speciale'][mo['classe']]}</span>"), r, 2)
-            g.addWidget(QLabel(f"<b>{mo['potenza']}</b>" if mo["potenza"] else f"<span style='color:{SPENTO}'>—</span>"), r, 3)
+            g.addWidget(QLabel(f"<b style='color:{cc}'>{NOMI_CLASSE[mo['classe']]}</b>"), r, 2)
+            g.addWidget(QLabel(f"<b style='color:{cc};font-size:12pt'>{mo['potenza']}</b>" if mo["potenza"]
+                               else f"<span style='color:{SPENTO}'>—</span>"), r, 3)
+            eff = QLabel(f"<span style='color:{ORO};font-size:8pt'>{mo.get('nota') or ''}</span>")
+            eff.setWordWrap(True)
+            eff.setMinimumWidth(120)
+            eff.setToolTip(suggerimento_mossa(mo))
+            g.addWidget(eff, r, 6)
             prec = mo.get("precisione")
-            g.addWidget(QLabel(f"{prec}%" if prec else f"<span style='color:{SPENTO}'>—</span>"), r, 4)
+            g.addWidget(QLabel(f"{prec}%" if prec else f"<span style='color:{SPENTO}'>{'—' if mo['classe'] == 0 else 'sempre'}</span>"), r, 4)
             pp_max = mo["pp"] * (5 + ((d.get("pp_su") or [0, 0, 0, 0])[k] or 0)) // 5 if mo["pp"] else 0
             pp_ora = (d.get("pp") or [0, 0, 0, 0])[k]
             cpp = KO if pp_ora == 0 else WARN if pp_max and pp_ora <= pp_max // 4 else TESTO

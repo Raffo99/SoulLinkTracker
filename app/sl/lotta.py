@@ -146,7 +146,28 @@ def mossa(i):
     if not v:
         return None
     nome, tipo, pot, prec, pp, classe = v
-    return {"id": i, "nome": nome, "tipo": tipo, "potenza": pot, "precisione": prec, "pp": pp, "classe": classe}
+    nota, descr = (L._DATI.get("mosse_note") or {}).get(str(i)) or ("", "")
+    return {"id": i, "nome": nome, "tipo": tipo, "potenza": pot, "precisione": prec, "pp": pp, "classe": classe,
+            "nota": nota, "descrizione": descr}
+
+
+# colore del testo per la categoria: fisica (arancio) e speciale (azzurro); le mosse di stato restano tenui
+COLORI_CLASSE = {0: TENUE, 1: "#FF9A52", 2: "#7DB2FF"}
+NOMI_CLASSE = ["stato", "fisica", "speciale"]
+
+
+def suggerimento_mossa(mo, extra=""):
+    """Testo del tooltip di una mossa: efficacia (se c'è), effetto in breve, descrizione del gioco."""
+    righe = [f"<b>{mo['nome']}</b> · {NOMI_CLASSE[mo['classe']]}"
+             + (f" · potenza {mo['potenza']}" if mo.get("potenza") else "")
+             + (f" · precisione {mo['precisione']}%" if mo.get("precisione") else "")]
+    if extra:
+        righe.append(extra)
+    if mo.get("nota"):
+        righe.append(f"<span style='color:{ORO}'>{mo['nota']}</span>")
+    if mo.get("descrizione"):
+        righe.append(f"<i>{mo['descrizione']}</i>")
+    return "<br>".join(righe)
 
 
 def tipi_di(specie):
@@ -556,30 +577,39 @@ class CartaLotta(QFrame):
             if stab and e > 0:
                 desc = f"{desc} {scrivi_molt(e)} · stesso tipo del Pokémon (STAB) ×1,5 = {tx}"
             colore_nome = OK if e >= 2 else KO if 0 < e < 1 else SPENTO if e == 0 else TESTO
+        cc = COLORI_CLASSE.get(mo["classe"], TENUE)
         box = QFrame()
         box.setObjectName("mossa")
-        box.setStyleSheet(f"QFrame#mossa {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(tc, 0.16)},"
-                          f" stop:1 {alfa(tc, 0.05)}); border: 1px solid {alfa(tc, 0.35)}; border-left: 3px solid {tc};"
-                          f" border-radius: 9px; }}")
-        box.setToolTip(desc)
+        box.setStyleSheet(f"QFrame#mossa {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(tc, 0.18)},"
+                          f" stop:1 {alfa(tc, 0.06)}); border: 2px solid {alfa(tc, 0.75)}; border-radius: 9px; }}")
+        box.setToolTip(suggerimento_mossa(mo, desc))
         g = QGridLayout(box)
-        g.setContentsMargins(10, 7, 10, 7)
+        g.setContentsMargins(10, 6, 10, 6)
         g.setHorizontalSpacing(6)
-        g.setVerticalSpacing(2)
+        g.setVerticalSpacing(1)
         stella = f" <span style='color:{ORO}'>★</span>" if stab else ""
         g.addWidget(QLabel(f"<b style='color:{colore_nome};font-size:10pt'>{mo['nome']}</b>{stella}"), 0, 0)
         molt = QLabel(f"<b style='color:{c};font-size:12pt'>{tx}</b>")
         molt.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         g.addWidget(molt, 0, 1)
-        classe = ["stato", "fisica", "speciale"][mo["classe"]]
+        classe = NOMI_CLASSE[mo["classe"]]
         pp_max = mo["pp"] * (5 + ((mio.get("pp_su") or [0, 0, 0, 0])[k] or 0)) // 5 if mo["pp"] else 0
         pp_ora = (live.get("pp") or mio.get("pp") or [0, 0, 0, 0])[k]
         cpp = KO if pp_ora == 0 else WARN if pp_max and pp_ora <= pp_max // 4 else TENUE
-        g.addWidget(QLabel(f"{pillola_tipo(mo['tipo'])} <span style='color:{TENUE};font-size:8.5pt'>{classe}"
-                           + (f" · {mo['potenza']}" if mo["potenza"] else "") + "</span>"), 1, 0)
-        pp = QLabel(f"<span style='color:{cpp};font-size:8.5pt'>PP {pp_ora}/{pp_max}</span>")
+        # potenza grande, nel colore della categoria (fisica / speciale)
+        pot = (f"<b style='color:{cc};font-size:16pt'>{mo['potenza']}</b>&nbsp;&nbsp;" if mo["potenza"] else "")
+        g.addWidget(QLabel(f"{pot}{pillola_tipo(mo['tipo'])} <b style='color:{cc};font-size:8.5pt'>{classe}</b>"), 1, 0)
+        prec = mo.get("precisione")
+        cprec = TESTO if not prec or prec >= 100 else WARN if prec >= 70 else KO
+        testo_prec = f"{prec}%" if prec else ("—" if mo["classe"] == 0 else "sempre")   # 0 = non manca mai
+        pp = QLabel(f"<span style='color:{TENUE};font-size:8pt'>PREC</span> <b style='color:{cprec};font-size:9pt'>"
+                    f"{testo_prec}</b><br><span style='color:{cpp};font-size:8.5pt'>PP {pp_ora}/{pp_max}</span>")
         pp.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         g.addWidget(pp, 1, 1)
+        if mo.get("nota"):
+            nota = QLabel(f"<span style='color:{ORO};font-size:8pt'>✦ {mo['nota']}</span>")
+            nota.setWordWrap(True)
+            g.addWidget(nota, 2, 0, 1, 2)
         g.setColumnStretch(0, 1)
         return box
 
