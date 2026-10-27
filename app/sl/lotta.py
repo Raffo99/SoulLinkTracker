@@ -215,9 +215,46 @@ def migliore(mosse, tipi_attaccante, tipi_difesa):
     return best
 
 
+_PILLOLE = {}
+
+
 def pillola_tipo(t):
+    """Etichetta del tipo come piccola immagine arrotondata: lo sfondo di uno <span> nel testo ricco prende tutta
+    l'altezza della riga (accanto a un numero grande diventava un rettangolone)."""
+    if t in _PILLOLE:
+        return _PILLOLE[t]
+    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QRectF
+    from PySide6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPixmap
+    from PySide6.QtWidgets import QApplication
     c = COLORI_TIPI.get(t, "#888888")
-    return f"<span style='background:{alfa(c, 0.25)};color:{c};font-size:8pt;font-weight:700;'>&nbsp;{t}&nbsp;</span>"
+    f = QFont(QApplication.font())
+    f.setPointSizeF(7.5)
+    f.setBold(True)
+    fm = QFontMetrics(f)
+    w, h = fm.horizontalAdvance(t) + 12, fm.height() + 2
+    k = 3                                                   # disegnata più grande: nitida anche con lo schermo ingrandito
+    pm = QPixmap(w * k, h * k)
+    pm.fill(QColor(0, 0, 0, 0))
+    pa = QPainter(pm)
+    pa.setRenderHint(QPainter.Antialiasing)
+    pa.setRenderHint(QPainter.TextAntialiasing)
+    pa.scale(k, k)
+    fondo = QColor(c)
+    fondo.setAlpha(64)
+    pa.setPen(Qt.NoPen)
+    pa.setBrush(fondo)
+    pa.drawRoundedRect(QRectF(0, 0, w, h), 4, 4)
+    pa.setFont(f)
+    pa.setPen(QColor(c))
+    pa.drawText(QRectF(0, 0, w, h), Qt.AlignCenter, t)
+    pa.end()
+    ba = QByteArray()
+    buf = QBuffer(ba)
+    buf.open(QIODevice.WriteOnly)
+    pm.save(buf, "PNG")
+    uri = "data:image/png;base64," + bytes(ba.toBase64()).decode()
+    _PILLOLE[t] = f"<img src='{uri}' width='{w}' height='{h}' style='vertical-align:middle'>"
+    return _PILLOLE[t]
 
 
 class Scelta(QPushButton):
@@ -260,8 +297,8 @@ class CartaLotta(QFrame):
         self._idx_nem, self._ko_da = None, None
         self.impara = {}                      # specie -> [(livello, mossa)] letti dalla ROM randomizzata
         self.v = QVBoxLayout(self)
-        self.v.setContentsMargins(18, 14, 18, 14)
-        self.v.setSpacing(8)
+        self.v.setContentsMargins(14, 10, 14, 10)
+        self.v.setSpacing(6)
 
     def _pulisci(self):
         while self.v.count():
@@ -403,24 +440,26 @@ class CartaLotta(QFrame):
         live = self._live(mio)
         self.v.addWidget(self._riquadro_mio(mio, tipi_mio, live))
 
-        # abilità e mosse da imparare: testo piccolo, ognuno sulla sua riga
+        # abilità e mosse da imparare su una riga sola (la descrizione dell'abilità passando sopra col mouse)
         ab = (L._DATI.get("abilita") or {}).get(str(mio.get("abilita") or 0))
+        parti = []
         if ab:
-            l_ab = QLabel(f"<span style='color:{SPENTO};font-size:8pt;font-weight:700'>ABILITÀ</span>&nbsp; <b>{ab[0]}</b>"
-                          + (f"<br><span style='color:{TENUE};font-size:8.5pt'>{ab[1]}</span>" if ab[1] else ""))
-            l_ab.setWordWrap(True)
-            self.v.addWidget(l_ab)
+            parti.append(f"<span style='color:{SPENTO};font-size:8pt;font-weight:700'>ABILITÀ</span>&nbsp; <b>{ab[0]}</b>")
         riga_imp = self._riga_impara(mio)
         if riga_imp:
-            l_imp = QLabel(f"<span style='font-size:8.5pt'>{riga_imp}</span>")
-            l_imp.setWordWrap(True)
-            self.v.addWidget(l_imp)
+            parti.append(f"<span style='font-size:8.5pt'>{riga_imp}</span>")
+        if parti:
+            l_ab = QLabel(f" <span style='color:{SPENTO}'>·</span> ".join(parti))
+            l_ab.setWordWrap(True)
+            if ab and ab[1]:
+                l_ab.setToolTip(f"<b>{ab[0]}</b>: {ab[1]}")
+            self.v.addWidget(l_ab)
 
         # --- le sue mosse: quattro riquadri come nel gioco
         g = QGridLayout()
         g.setHorizontalSpacing(8)
-        g.setVerticalSpacing(8)
-        g.setContentsMargins(0, 4, 0, 0)
+        g.setVerticalSpacing(6)
+        g.setContentsMargins(0, 2, 0, 0)
         n = 0
         for k, mid in enumerate(mio.get("mosse") or []):
             mo = mossa(mid) if mid else None
@@ -430,12 +469,9 @@ class CartaLotta(QFrame):
             n += 1
         self.v.addLayout(g)
         if (self.det or {}).get("mio"):
-            t_nota = "Segue il Pokémon in campo (clicca un altro per confrontarlo). PS, PP e modifiche in tempo reale."
+            self.setToolTip("Segue il Pokémon in campo (clicca un altro per confrontarlo). PS, PP e modifiche in tempo reale.")
         else:
-            t_nota = "Clicca il Pokémon che hai in campo. PS e PP sono quelli di inizio lotta."
-        nota = QLabel(f"<span style='color:{SPENTO};font-size:8pt'>{t_nota}</span>")
-        nota.setWordWrap(True)
-        self.v.addWidget(nota)
+            self.setToolTip("Clicca il Pokémon che hai in campo. PS e PP sono quelli di inizio lotta.")
         self.v.addStretch()
 
     def _striscia_nemico(self, nem):
@@ -449,13 +485,13 @@ class CartaLotta(QFrame):
         box.setStyleSheet(f"QFrame#striscia {{ background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(KO, 0.14)},"
                           f" stop:1 rgba(255,255,255,0.02)); border: 1px solid {alfa(KO, 0.30)}; border-radius: 12px; }}")
         h = QHBoxLayout(box)
-        h.setContentsMargins(8, 6, 12, 6)
+        h.setContentsMargins(8, 4, 12, 4)
         h.setSpacing(10)
         img = QLabel()
-        img.setFixedSize(46, 46)
+        img.setFixedSize(40, 40)
         img.setAlignment(Qt.AlignCenter)
-        img.setStyleSheet(f"background: {alfa(tc, 0.18)}; border-radius: 23px;")
-        pm = self.sprite.pixmap(nem["specie"], 42) if self.sprite else None
+        img.setStyleSheet(f"background: {alfa(tc, 0.18)}; border-radius: 20px;")
+        pm = self.sprite.pixmap(nem["specie"], 36) if self.sprite else None
         if pm:
             img.setPixmap(pm)
         h.addWidget(img)
@@ -506,8 +542,8 @@ class CartaLotta(QFrame):
         box.setStyleSheet("QFrame#lottaMio { background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.06);"
                           " border-radius: 12px; }")
         v = QVBoxLayout(box)
-        v.setContentsMargins(12, 10, 12, 10)
-        v.setSpacing(8)
+        v.setContentsMargins(12, 7, 12, 7)
+        v.setSpacing(5)
         # riga 1: nome, livello, tipi, stato · barra dei PS
         r1 = QHBoxLayout()
         r1.setSpacing(10)
@@ -550,7 +586,7 @@ class CartaLotta(QFrame):
                 cella = QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>{NOMI_STAT[i].upper()}</span><br>"
                                f"<b style='color:{col};font-size:10.5pt'>{stat[i]}</b>{mod}")
                 cella.setAlignment(Qt.AlignCenter)
-                cella.setStyleSheet("background: rgba(255,255,255,0.04); border-radius: 7px; padding: 2px 0;")
+                cella.setStyleSheet("background: rgba(255,255,255,0.04); border-radius: 7px; padding: 0;")
                 cella.setToolTip(NOMI_STAT_LUNGHI[i] + (" (aumentata dalla natura)" if col == OK else
                                                         " (diminuita dalla natura)" if col == KO else ""))
                 r2.addWidget(cella, 1)
@@ -558,7 +594,7 @@ class CartaLotta(QFrame):
                 cella = QLabel(f"<span style='color:{SPENTO};font-size:7.5pt;font-weight:700'>NATURA</span><br>"
                                f"<span style='font-size:9pt'>{nn[0]}</span>")
                 cella.setAlignment(Qt.AlignCenter)
-                cella.setStyleSheet("background: rgba(255,255,255,0.04); border-radius: 7px; padding: 3px 0;")
+                cella.setStyleSheet("background: rgba(255,255,255,0.04); border-radius: 7px; padding: 0;")
                 if nn[1] != nn[2]:
                     cella.setToolTip(f"+{NOMI_STAT_LUNGHI[nn[1]]}, −{NOMI_STAT_LUNGHI[nn[2]]}")
                 r2.addWidget(cella, 1)
@@ -584,9 +620,9 @@ class CartaLotta(QFrame):
                           f" stop:1 {alfa(tc, 0.06)}); border: 2px solid {alfa(tc, 0.75)}; border-radius: 9px; }}")
         box.setToolTip(suggerimento_mossa(mo, desc))
         g = QGridLayout(box)
-        g.setContentsMargins(10, 6, 10, 6)
+        g.setContentsMargins(10, 4, 10, 4)
         g.setHorizontalSpacing(6)
-        g.setVerticalSpacing(1)
+        g.setVerticalSpacing(0)
         stella = f" <span style='color:{ORO}'>★</span>" if stab else ""
         g.addWidget(QLabel(f"<b style='color:{colore_nome};font-size:10pt'>{mo['nome']}</b>{stella}"), 0, 0)
         molt = QLabel(f"<b style='color:{c};font-size:12pt'>{tx}</b>")

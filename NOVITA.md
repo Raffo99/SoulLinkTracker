@@ -1,6 +1,8 @@
-- Esperienza (solo dagli allenatori, level cap bloccato, Condividi ridotto): ora funziona davvero. C'erano due problemi: all'inizio di ogni lotta lo script rimetteva l'esperienza normale sopra la decisione dell'app, e se il codice della lotta del gioco non era ancora caricato (succede spesso con gli allenatori) rinunciava per tutta la lotta. Adesso finché l'app non risponde l'esperienza è zero (con solo allenatori o cap bloccato), lo script riprova ogni mezzo secondo per 20 secondi e l'app rimanda la sua decisione se vede che lo script ne sta usando un'altra.
-- Con **Esperienza solo dagli allenatori** i selvatici danno esattamente zero esperienza; con **Blocca il level cap** al cap l'esperienza è zero.
-- Mosse nel tracker della lotta: la potenza è scritta grande, con il testo **arancione per le mosse fisiche** e **azzurro per quelle speciali**; il bordo del riquadro ora è intero, nel colore del tipo.
-- Sotto ogni mossa c'è una nota con gli effetti secondari e i danni particolari: probabilità di stato (10% scottatura…), tentennamento, statistiche che cambiano (e di chi), priorità, colpi multipli, assorbimento e contraccolpo, brutti colpi facili, e i danni calcolati in modo diverso (Movimento Sismico = livello, Ira di Drago 40 PS fissi, Superzanna metà PS, Colpo Basso, Bullo, Pugnodoppio…). Passando sopra con il mouse c'è anche la descrizione del gioco.
-- In ogni riquadro c'è anche la **precisione** (gialla sotto il 100%, rossa sotto il 70%; «sempre» per le mosse che non mancano mai).
-- La stessa nota c'è nella scheda dei Pokémon (colonna *Effetto*), con le categorie colorate allo stesso modo.
+- Etichette dei tipi (nelle mosse, accanto al Pokémon in lotta, nella scheda): ora sono piccole pillole arrotondate. Prima lo sfondo prendeva tutta l'altezza della riga e accanto alla potenza scritta grande diventava un rettangolone.
+- Tracker della lotta più compatto: abilità e prossima mossa su una riga sola (la descrizione dell'abilità passando sopra col mouse), meno spazi, niente nota in fondo. Non è mai più alto del necessario e divide lo spazio con le schede, così le Coppie restano più in alto.
+- Coppie: tolti «Ultimi eventi» e «Nel tuo box» (gli eventi restano nel Diario).
+- Schede dei giocatori in alto: tolta la barra verde dei PS della squadra (c'è già nelle Coppie). Al suo posto c'è dov'è, con livello e cap a destra (Lv 14/18); i PS della squadra restano nel riquadro che compare col mouse.
+
+Dalla 5.5.2:
+- Esperienza (solo dagli allenatori, level cap bloccato, Condividi ridotto) corretta: lo script non rimette più l'esperienza normale sopra la decisione dell'app e riprova finché il codice della lotta del gioco non è caricato. Con «solo dagli allenatori» i selvatici danno zero, con il cap bloccato al cap si prende zero.
+- Mosse: potenza grande (arancione fisica, azzurra speciale), precisione, bordo intero e nota con effetti secondari e danni particolari.

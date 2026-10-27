@@ -65,7 +65,7 @@ Il salvataggio di partenza viene copiato su ogni ROM nuova, così si riparte da 
 Il file sta in `Documenti\SoulLink Tracker\salvataggio_base.SaveRAM`. Puoi cancellarlo dallo stesso menu.
 
 ## 5. L'interfaccia
-- **In alto**: run, durata, catture, legami vivi e morti. Poi una scheda per ogni giocatore con le medaglie, i PS della squadra, il livello più alto rispetto al level cap e **cosa sta facendo in questo momento**:
+- **In alto**: run, durata, catture, legami vivi e morti. Poi una scheda per ogni giocatore con le medaglie, dov'è, il livello più alto rispetto al level cap (Lv 14/18: livello/cap) e **cosa sta facendo in questo momento**:
   - **IN GIRO** con il luogo in cui si trova e, sotto, il prossimo obiettivo;
   - **SELVATICO** con il Pokémon incontrato e il livello;
   - **ALLENATORE** con il nome dell'allenatore (per esempio *Pupa Lucia*);
@@ -85,7 +85,7 @@ Quando inizi una lotta, al posto di *Prossimo obiettivo* e *Dove sei* compare la
 - la tua squadra, ognuno con il miglior moltiplicatore contro l'avversario: è selezionato quello in campo, ma puoi cliccarne un altro per confrontarlo;
 - la **striscia dell'avversario**: nome, livello, tipi, PS in percentuale, stato, **modifiche alle statistiche** (Att +1, Dif −1…) e la sua **abilità** con la descrizione, ma solo dopo che il gioco l'ha mostrata;
 - il riquadro del tuo Pokémon: nome, tipi, stato, barra dei PS e le **statistiche in caselle** (verde quella aumentata dalla natura, rossa quella diminuita, accanto le modifiche in lotta come +1 o −2), più la natura;
-- l'**abilità** con la sua descrizione e tra quanti livelli arriva la **prossima mossa** (quale non si dice);
+- l'**abilità** e tra quanti livelli arriva la **prossima mossa** (quale non si dice), su una riga; la descrizione dell'abilità compare passando sopra col mouse;
 - le **mosse in quattro riquadri** come nel gioco, colorati col tipo: nome **verde** se superefficace (rosso se poco efficace, grigio se non ha effetto), **stella dorata** se STAB, a destra il moltiplicatore totale (efficacia × 1,5 se STAB: superefficace + STAB = ×3), sotto la **potenza in grande** (arancione se la mossa è fisica, azzurra se speciale), tipo e PP, e una **nota sugli effetti** (probabilità di stato, statistiche che cambiano, priorità, colpi multipli, contraccolpo, danni particolari come Movimento Sismico o Superzanna). Col mouse sopra c'è anche la descrizione del gioco.
 PS, PP e modifiche alle statistiche del Pokémon in campo sono in tempo reale. La fine della lotta si riconosce da quando il codice di lotta del gioco sparisce dalla memoria, quindi il riquadro resta anche nelle lotte lunghe.
 

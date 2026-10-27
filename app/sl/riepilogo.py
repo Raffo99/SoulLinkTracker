@@ -166,7 +166,7 @@ class CartaGiocatore(QFrame):
         self.setMinimumWidth(190)
         self.setMaximumWidth(340)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        # avatar a sinistra accanto a nome e stato; la barra dei PS sotto, su tutta la larghezza
+        # avatar a sinistra accanto a nome e stato; sotto dov'è e livello / cap (i PS sono già nelle Coppie)
         g = QGridLayout(self)
         g.setContentsMargins(12, 9, 12, 9)
         g.setHorizontalSpacing(10)
@@ -191,19 +191,15 @@ class CartaGiocatore(QFrame):
         r2.addWidget(self.l_stato, 0)
         r2.addWidget(self.l_cosa, 1)
         g.addLayout(r2, 1, 1)
-        self.l_luogo = Elisa()                               # dov'è, su tutta la larghezza
+        r3 = QHBoxLayout()                                   # dov'è (con «…» se non ci sta) e a destra livello / cap
+        r3.setSpacing(8)
+        r3.setContentsMargins(0, 2, 0, 0)
+        self.l_luogo = Elisa()
         self.l_luogo.setMinimumHeight(16)
-        g.addWidget(self.l_luogo, 2, 0, 1, 2)
-        r3 = QHBoxLayout()
-        r3.setSpacing(10)
-        r3.setContentsMargins(0, 4, 0, 0)
-        self.ps = QProgressBar()
-        self.ps.setTextVisible(False)
-        self.ps.setFixedHeight(5)
         self.l_lv = etichetta("", "piccolo")
-        r3.addWidget(self.ps, 1, Qt.AlignVCenter)
+        r3.addWidget(self.l_luogo, 1, Qt.AlignVCenter)
         r3.addWidget(self.l_lv, 0, Qt.AlignVCenter)
-        g.addLayout(r3, 3, 0, 1, 2)
+        g.addLayout(r3, 2, 0, 1, 2)
         g.setColumnStretch(1, 1)
 
     def imposta(self, g, x, squadra, io=False, colore=ACC):
@@ -228,18 +224,14 @@ class CartaGiocatore(QFrame):
             self.style().polish(self)
         tot = sum(p.get("ps_max") or 0 for p in squadra)
         ora = sum(min(p.get("ps") or 0, p.get("ps_max") or 0) for p in squadra)
-        self.ps.setRange(0, max(1, tot))
-        self.ps.setValue(ora if tot else 0)
-        perc = ora / tot if tot else 0
-        cb = OK if perc > 0.5 else WARN if perc > 0.2 else KO
-        self.ps.setStyleSheet(f"QProgressBar::chunk{{background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {alfa(cb, 0.7)}, stop:1 {cb});}}")
         lv = max((p.get("livello") or 0 for p in squadra), default=0)
         cap = x.get("cap", "?")
         sopra = isinstance(cap, int) and lv > cap
         self.l_lv.setText(f"Lv <b style='color:{KO if sopra else TESTO}'>{lv or '–'}</b>"
-                          f" <span style='color:#5b5f73'>·</span> cap <b style='color:{WARN}'>{cap}</b>")
-        self.ps.setToolTip(f"PS della squadra: {ora}/{tot}" if tot else "nessun Pokémon in squadra")
-        righe = [f"<b>{g}</b> · {x.get('medaglie') or 0} medaglie · level cap {cap} · {len(squadra)} in squadra",
+                          f"<span style='color:#5b5f73'>/</span><b style='color:{WARN}'>{cap}</b>")
+        self.l_lv.setToolTip(f"livello più alto in squadra {lv or '–'} · level cap {cap}")
+        righe = [f"<b>{g}</b> · {x.get('medaglie') or 0} medaglie · level cap {cap} · {len(squadra)} in squadra"
+                 + (f" · PS {ora}/{tot}" if tot else ""),
                  f"{et.capitalize()}: {cosa}" + (f" — {sotto}" if sotto else "")]
         a = x.get("attivita") or {}
         if in_lotta and a.get("ps_max"):
@@ -615,20 +607,10 @@ class PannelloCoppie(QScrollArea):
     def forza(self):
         self._firma = None
 
-    def _eventi(self, st):
-        ev = st.get("eventi", [])[:6]
-        if not ev:
-            return
-        self.v.addSpacing(8)
-        self.v.addWidget(etichetta("ULTIMI EVENTI", "sezione"))
-        for e in ev:
-            ora = time.strftime("%H:%M", time.localtime(e["t"]))
-            self.v.addWidget(etichetta(f"<span style='color:{TENUE}'>{ora}</span>&nbsp;&nbsp;<span style='color:{COLORI_EVENTI.get(e.get('tipo'), '#d8d9e3')}'>{e['testo']}</span>", a_capo=True))
-
     def aggiorna(self, st, io):
         P = st["pokemon"]
         firma = repr(sorted((k, p["stato"], p.get("ps"), p.get("ps_max"), p.get("livello"), p.get("specie"), p.get("partner"),
-                             p.get("stato_alt"), p.get("stato_lotta")) for k, p in P.items())) + io + repr(st["eventi"][:6])
+                             p.get("stato_alt"), p.get("stato_lotta")) for k, p in P.items())) + io
         if firma == self._firma:
             return
         self._firma = firma
@@ -680,13 +662,6 @@ class PannelloCoppie(QScrollArea):
                 for i, p in enumerate(sorted(loro, key=lambda p: p.get("slot", 0))):
                     gr.addWidget(MiniPokemon(p, self.sprite), i // 2, i % 2)
                 self.v.addLayout(gr)
-        self._eventi(st)
-        box_vivi = [p for p in P.values() if p["giocatore"] == io and p["stato"] == "box"]
-        if box_vivi:
-            nomi = ", ".join(nome(p) for p in box_vivi[:12]) + ("…" if len(box_vivi) > 12 else "")
-            self.v.addSpacing(8)
-            self.v.addWidget(etichetta(f"NEL TUO BOX ({len(box_vivi)})", "sezione"))
-            self.v.addWidget(etichetta(nomi, "tenue", a_capo=True))
         self.v.addStretch()
 
 

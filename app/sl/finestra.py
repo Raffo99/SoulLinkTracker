@@ -175,10 +175,10 @@ class Finestra(QMainWindow):
         self.s_lotta.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.s_lotta.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
         self.s_lotta.setWidget(self.c_lotta)
-        self.s_lotta.setMinimumHeight(260)
-        riga.addWidget(self.s_lotta, 2)
+        self.s_lotta.setMinimumHeight(220)
         self.s_lotta.hide()
         dv.addLayout(riga)
+        dv.addWidget(self.s_lotta)                      # sotto le due carte (nascoste in lotta), sopra le schede
         self._dv, self._riga = dv, riga
         self.l_avvisi = QLabel("")
         self.l_avvisi.setObjectName("avvisi")
@@ -682,12 +682,15 @@ class Finestra(QMainWindow):
         self.c_luogo.setVisible(not in_lotta)
         self.s_lotta.setVisible(in_lotta)
         self.c_lotta.setVisible(in_lotta)
-        self._dv.setStretchFactor(self._riga, 3 if in_lotta else 0)       # in lotta il riquadro prende più spazio delle schede
+        # in lotta il riquadro (al massimo alto quanto il contenuto) e le schede si dividono lo spazio 3 a 2
+        self._dv.setStretchFactor(self.s_lotta, 3 if in_lotta else 0)
         self.l_avvisi.setVisible(not in_lotta and bool((self._ultimo_stato or {}).get("avvisi")))
-        self._dv.setStretchFactor(self.tabs, 1)
+        self._dv.setStretchFactor(self.tabs, 2 if in_lotta else 1)
         if in_lotta:
             self._carica_impara()
             self.c_lotta.aggiorna(det, self._squadra_gioco)
+            self._altezza_lotta()
+            QTimer.singleShot(0, self._altezza_lotta)
             self._avvisa_lotta_importante(det)
             self._controlla_esperienza(det)
             m = det.get("mio") or {}
@@ -699,6 +702,17 @@ class Finestra(QMainWindow):
         self._pubblica_squadra()
         if self._ultimo_stato:
             self.p_coppie.aggiorna(self._con_dati_vivi(self._ultimo_stato), self.cfg["giocatore"])
+
+    def _altezza_lotta(self):
+        """Il riquadro della lotta non è mai più alto del suo contenuto: lo spazio che avanza va alle Coppie."""
+        lay = self.c_lotta.layout()
+        if not lay:
+            return
+        w = self.s_lotta.viewport().width() or self.c_lotta.width()
+        h = lay.heightForWidth(w) if lay.hasHeightForWidth() else -1
+        if h <= 0:
+            h = lay.sizeHint().height()
+        self.s_lotta.setMaximumHeight(max(self.s_lotta.minimumHeight(), h + 4))
 
     def _aggiorna_storia(self, st, io):
         """Luoghi visitati (miei, dal gioco; degli altri, dalla loro app) e prossima tappa della storia di ognuno."""
