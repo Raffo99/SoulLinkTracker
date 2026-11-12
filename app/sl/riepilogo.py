@@ -667,15 +667,15 @@ class PannelloCoppie(QScrollArea):
 
 # ----------------------------------------------------------------------------------------------
 class OspiteGioco(QWidget):
-    """Riquadro nativo che ospita la finestra di BizHawk (le coordinate sono relative a questo riquadro)."""
+    """Riquadro nativo che ospita la finestra di melonDS (le coordinate sono relative a questo riquadro)."""
     ridimensionato = Signal()
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.setAttribute(Qt.WA_NativeWindow, True)
         self.setAttribute(Qt.WA_DontCreateNativeAncestors, True)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setStyleSheet("background:#0b0c10;")
+        self.setStyleSheet("background:#000000;")
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
@@ -684,6 +684,114 @@ class OspiteGioco(QWidget):
     def dimensioni_fisiche(self):
         r = self.devicePixelRatioF()
         return int(self.width() * r), int(self.height() * r)
+
+
+class CorniceGioco(QWidget):
+    """Il gioco al centro, con le proporzioni dei due schermi del DS, dentro una cornice che ricorda la console.
+    La finestra di melonDS sta nel riquadro nativo «schermo»; tutto il resto (sfondo, cornice, scritta) è disegnato qui."""
+    ridimensionato = Signal()
+    BORDO = 18              # spessore della cornice intorno agli schermi
+    SOTTO = 34              # spazio per la scritta sotto la cornice
+
+    def __init__(self, proporzione: float):
+        super().__init__()
+        self.proporzione = proporzione            # larghezza / altezza degli schermi
+        self.didascalia = ""
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.schermo = OspiteGioco(self)
+        self.schermo.ridimensionato.connect(self.ridimensionato)
+
+    def imposta_didascalia(self, testo: str):
+        self.didascalia = testo
+        self.update()
+
+    def area_schermo(self):
+        from PySide6.QtCore import QRect
+        m = 22
+        w, h = self.width() - 2 * m - 2 * self.BORDO, self.height() - 2 * m - 2 * self.BORDO - self.SOTTO
+        if w <= 0 or h <= 0:
+            return QRect(0, 0, 1, 1)
+        if w / h > self.proporzione:
+            sw, sh = int(h * self.proporzione), h
+        else:
+            sw, sh = w, int(w / self.proporzione)
+        x = (self.width() - sw) // 2
+        y = m + self.BORDO + (h - sh) // 2
+        return QRect(x, y, sw, sh)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self.schermo.setGeometry(self.area_schermo())
+        self.ridimensionato.emit()
+
+    def paintEvent(self, ev):
+        from PySide6.QtCore import QPointF, QRectF
+        from PySide6.QtGui import QLinearGradient, QPainter, QPen, QRadialGradient
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        r = self.rect()
+        s = QRectF(self.area_schermo())
+        b = self.BORDO
+        corpo = s.adjusted(-b, -b, b, b)
+        # sfondo scuro, con una luce viola morbida dietro la console
+        p.fillRect(r, QColor("#0c0d13"))
+        luce = QRadialGradient(corpo.center(), max(corpo.width(), corpo.height()) * 0.95)
+        luce.setColorAt(0, QColor(139, 108, 255, 70))
+        luce.setColorAt(0.45, QColor(139, 108, 255, 24))
+        luce.setColorAt(1, QColor(139, 108, 255, 0))
+        p.fillRect(r, luce)
+        # ombra sotto la console
+        for i, a in enumerate((34, 22, 12, 6)):
+            p.setPen(Qt.NoPen)
+            p.setBrush(QColor(0, 0, 0, a))
+            k = 3 + 4 * i
+            p.drawRoundedRect(corpo.adjusted(-k, -k + 4, k, k + 8), 24 + k, 24 + k)
+        # corpo della console
+        g = QLinearGradient(corpo.topLeft(), corpo.bottomRight())
+        g.setColorAt(0, QColor("#30324a"))
+        g.setColorAt(0.5, QColor("#23253a"))
+        g.setColorAt(1, QColor("#1a1b2a"))
+        p.setBrush(g)
+        p.setPen(QPen(QColor(255, 255, 255, 26), 1))
+        p.drawRoundedRect(corpo, 24, 24)
+        # riflesso sul bordo alto e filo di luce nei colori dell'app
+        p.setPen(QPen(QColor(255, 255, 255, 18), 1))
+        p.drawRoundedRect(corpo.adjusted(1.5, 1.5, -1.5, -1.5), 23, 23)
+        filo = QLinearGradient(corpo.topLeft(), corpo.topRight())
+        filo.setColorAt(0, QColor(139, 108, 255, 0))
+        filo.setColorAt(0.5, QColor(197, 108, 255, 200))
+        filo.setColorAt(1, QColor(139, 108, 255, 0))
+        p.setPen(QPen(filo, 2))
+        p.drawLine(QPointF(corpo.left() + 40, corpo.top() + 1), QPointF(corpo.right() - 40, corpo.top() + 1))
+        # vetro intorno agli schermi
+        p.setPen(QPen(QColor(0, 0, 0, 190), 3))
+        p.setBrush(Qt.NoBrush)
+        p.drawRoundedRect(s.adjusted(-2.5, -2.5, 2.5, 2.5), 7, 7)
+        # cerniera: due piccole fessure ai lati, all'altezza dello spazio tra gli schermi
+        meta = s.top() + s.height() / 2
+        alto = max(6.0, s.height() * 0.03)
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 120))
+        for x in (corpo.left() + b / 2 - 2, corpo.right() - b / 2 - 2):
+            p.drawRoundedRect(QRectF(x, meta - alto / 2, 4, alto), 2, 2)
+        # spia accesa, con il suo alone
+        spia = QPointF(corpo.left() + b + 10, corpo.bottom() - b / 2)
+        alone = QRadialGradient(spia, 9)
+        alone.setColorAt(0, QColor(62, 207, 142, 150))
+        alone.setColorAt(1, QColor(62, 207, 142, 0))
+        p.setBrush(alone)
+        p.drawEllipse(spia, 9, 9)
+        p.setBrush(QColor(OK))
+        p.drawEllipse(spia, 2.6, 2.6)
+        # scritta sotto
+        if self.didascalia:
+            p.setPen(QColor(TENUE))
+            f = p.font()
+            f.setPointSizeF(8.5)
+            p.setFont(f)
+            p.drawText(QRectF(corpo.left() - 80, corpo.bottom() + 10, corpo.width() + 160, self.SOTTO - 8),
+                       Qt.AlignHCenter | Qt.AlignTop, self.didascalia)
+        p.end()
 
 
 # ----------------------------------------------------------------------------------------------

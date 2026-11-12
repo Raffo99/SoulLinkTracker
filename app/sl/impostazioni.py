@@ -82,13 +82,16 @@ class Impostazioni(QDialog):
 
         g2 = QGroupBox("EMULATORE E RANDOMIZER")
         f2 = self._form(g2)
-        self.bizhawk = CampoFile(cfg["bizhawk"], "EmuHawk (EmuHawk.exe)")
+        self.melon = CampoFile(cfg.get("melonds", ""), "melonDS (melonDS.exe)")
+        self.melon.e.setPlaceholderText("vuoto = la copia dell'app (scaricata da sola la prima volta)")
+        self.melon.setToolTip("Lascia vuoto: l'app scarica melonDS da GitHub e usa una sua copia, con le impostazioni "
+                              "giuste per il tracker. Indica un melonDS solo se l'app non riesce a scaricarlo.")
         self.java = QLineEdit(cfg["java"])
         self.java.setPlaceholderText("java  (oppure il percorso di java.exe a 64 bit)")
         self.jar = CampoFile(cfg["jar"], "Randomizer (*.jar)")
         self.imp = CampoFile(cfg["impostazioni"], "Impostazioni randomizer (*.rnqs)")
         self.rom = CampoFile(cfg["rom_originale"], "ROM Nintendo DS (*.nds)")
-        f2.addRow("BizHawk", self.bizhawk)
+        f2.addRow("melonDS", self.melon)
         f2.addRow("Java", self.java)
         f2.addRow("Randomizer (.jar)", self.jar)
         f2.addRow("Impostazioni (.rnqs)", self.imp)
@@ -101,14 +104,14 @@ class Impostazioni(QDialog):
         self.salta = QCheckBox("Salta l'inizio del gioco")
         self.salta.setToolTip("A ogni nuova run riparti dal salvataggio di partenza (fatto prima della scena dello starter)")
         self.salta.setChecked(cfg["salta_inizio"])
-        self.saveram = CampoFile(cfg["cartella_saveram"], cartella=True)
-        self.saveram.e.setPlaceholderText("vuoto = <cartella di BizHawk>/NDS/SaveRAM")
+        self.saveram = CampoFile(cfg.get("cartella_salvataggi", ""), cartella=True)
+        self.saveram.e.setPlaceholderText("vuoto = <cartella ROM e salvataggi>/salvataggi")
         self.diag = QCheckBox("Diagnostica memoria")
         self.diag.setToolTip("Mostra i dati letti dalla memoria del gioco (utile per la verifica iniziale)")
         self.diag.setChecked(cfg["diagnostica"])
         f3.addRow("Cartella ROM e salvataggi", self.dati)
         f3.addRow("", self.salta)
-        f3.addRow("Salvataggi di BizHawk", self.saveram)
+        f3.addRow("Salvataggi del gioco", self.saveram)
         f3.addRow("", self.diag)
         self.backup = QComboBox()
         self._minuti = [0, 5, 10, 15, 20, 30, 60]
@@ -116,14 +119,9 @@ class Impostazioni(QDialog):
             self.backup.addItem("mai (solo alla chiusura)" if m == 0 else f"{m} minuti")
         attuale = int(cfg.get("backup_minuti", 10) or 0)
         self.backup.setCurrentIndex(self._minuti.index(attuale) if attuale in self._minuti else 2)
-        self.backup.setToolTip("Ogni quanti minuti l'app fa un backup del punto in cui sei (stato salvato di BizHawk "
-                               "e copia del salvataggio del gioco). Alla chiusura lo fa sempre.")
+        self.backup.setToolTip("Ogni quanti minuti l'app copia da parte il salvataggio del gioco. "
+                               "Alla chiusura lo fa sempre.")
         f3.addRow("Backup automatico ogni", self.backup)
-        self.blocca = QCheckBox("Il gioco ignora i tasti quando usi un'altra finestra")
-        self.blocca.setToolTip("Se scrivi su Discord o altrove, i tasti non muovono il personaggio. Disattivalo se giochi "
-                               "con il controller tenendo l'app in secondo piano.")
-        self.blocca.setChecked(cfg.get("blocca_input", True) is not False)
-        f3.addRow("", self.blocca)
         self.agg = QCheckBox("Cerca aggiornamenti all'avvio")
         self.agg.setToolTip("Se su GitHub c'è una versione nuova te lo chiede e, se vuoi, si aggiorna da sola")
         self.agg.setChecked(cfg.get("aggiorna_auto", True) is not False)
@@ -173,10 +171,10 @@ class Impostazioni(QDialog):
     def _salva(self):
         c = self.cfg
         c.update(giocatore=self.giocatore.text().strip(), supabase_url=self.sb_url.text().strip().rstrip("/"),
-                 supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), bizhawk=self.bizhawk.text(), randomizza=True,
+                 supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), melonds=self.melon.text().strip(), randomizza=True,
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
-                 salta_inizio=self.salta.isChecked(), cartella_saveram=self.saveram.text(), diagnostica=self.diag.isChecked(),
-                 backup_minuti=self._minuti[self.backup.currentIndex()], blocca_input=self.blocca.isChecked(), aggiorna_auto=self.agg.isChecked())
+                 salta_inizio=self.salta.isChecked(), cartella_salvataggi=self.saveram.text(), diagnostica=self.diag.isChecked(),
+                 backup_minuti=self._minuti[self.backup.currentIndex()], aggiorna_auto=self.agg.isChecked())
         c.salva()
         self.accept()

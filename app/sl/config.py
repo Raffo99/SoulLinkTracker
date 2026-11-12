@@ -28,7 +28,8 @@ PREDEFINITA = {
     "supabase_url": "",
     "supabase_chiave": "",
     "codice": "",
-    "bizhawk": "C:/BizHawk/EmuHawk.exe",
+    "melonds": "",                   # vuoto = la copia di melonDS dell'app (scaricata da sola)
+    "bizhawk": "",                   # solo per riprendere i salvataggi fatti con le versioni fino alla 5.5
     "java": "java",
     "jar": "",
     "impostazioni": "",
@@ -37,7 +38,8 @@ PREDEFINITA = {
     "randomizza": True,
     "rom_manuale": "",
     "salta_inizio": True,
-    "cartella_saveram": "",
+    "cartella_saveram": "",          # cartella dei salvataggi di BizHawk (vecchie versioni)
+    "cartella_salvataggi": "",       # salvataggi di melonDS (vuoto = <cartella dati>/salvataggi)
     "diagnostica": False,
     "chiedi_partita": True,
     "backup_minuti": 10,             # backup automatico (0 = mai; alla chiusura si fa sempre)
@@ -64,6 +66,12 @@ class Config(dict):
         tmp.write_text(json.dumps(dict(self), indent=2, ensure_ascii=False), "utf-8")
         os.replace(tmp, self.file)
 
+    def exe_melonds(self) -> Path:
+        """melonDS da usare: quello scelto nelle impostazioni, altrimenti la copia dell'app."""
+        from .melon import exe_predefinito
+        p = (self.get("melonds") or "").strip()
+        return Path(p) if p else exe_predefinito()
+
     def mancanti(self) -> list:
         """Campi indispensabili ancora vuoti (per aprire le impostazioni al primo avvio)."""
         m = []
@@ -75,8 +83,6 @@ class Config(dict):
             m.append("chiave Supabase")
         if not self.get("codice"):
             m.append("codice della partita")
-        if not Path(self.get("bizhawk") or "").exists():
-            m.append("BizHawk (EmuHawk.exe)")
         for k, n in (("jar", "randomizer"), ("impostazioni", "impostazioni .rnqs"), ("rom_originale", "la tua ROM")):
             if not Path(self.get(k) or "").exists():
                 m.append(n)

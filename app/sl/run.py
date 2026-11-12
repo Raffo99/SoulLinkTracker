@@ -59,10 +59,13 @@ class GestoreRun:
         return self.cartella_rom / f"SoulLink_{g}_{self.tag}{ed}_run{run}.nds"
 
     def cartella_stati(self) -> Path:
-        return self.cartella_saveram().parent / "State"
+        """Stati salvati di melonDS (Maiusc+F1…F8 per salvare, F1…F8 per caricare)."""
+        p = self.cartella / "stati"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
     def schemi_partita(self, edizioni=()) -> list:
-        """Nomi dei file (ROM, salvataggi, stati di BizHawk) di questa partita, con _ e spazi equivalenti."""
+        """Nomi dei file (ROM, salvataggi, stati salvati) di questa partita, con _ e spazi equivalenti."""
         g = nome_sicuro(self.cfg["giocatore"]).lower()
         schemi = [f"soullink {g} {self.tag.lower()} *"]
         schemi += [f"soullink {g} {nome_sicuro(e).lower()} run*" for e in edizioni if e]     # nomi della 4.4
@@ -73,7 +76,7 @@ class GestoreRun:
         return any(fnmatch.fnmatchcase(n, s) for s in self.schemi_partita(edizioni))
 
     def cancella_tutto(self, anche_partenza: bool, edizioni=()) -> list:
-        """Reset locale di QUESTA partita: ROM generate, salvataggi e stati salvati di BizHawk.
+        """Reset locale di QUESTA partita: ROM generate, salvataggi e stati salvati di melonDS.
         Le altre partite (altri codici) non vengono toccate."""
         cancellati = []
         for cartella in (self.cartella_rom, self.cartella / "rom", self.cartella_saveram(), self.cartella_stati()):
@@ -97,13 +100,42 @@ class GestoreRun:
         return cancellati
 
     def cartella_saveram(self) -> Path:
-        if self.cfg.get("cartella_saveram"):
-            return Path(self.cfg["cartella_saveram"])
-        return Path(self.cfg["bizhawk"]).parent / "NDS" / "SaveRAM"
+        """Salvataggi del gioco scritti da melonDS (un file .sav per ROM)."""
+        p = Path(self.cfg["cartella_salvataggi"]) if self.cfg.get("cartella_salvataggi") else self.cartella / "salvataggi"
+        p.mkdir(parents=True, exist_ok=True)
+        return p
 
     def file_saveram(self, rom) -> Path:
-        # BizHawk usa il nome del file senza estensione, con "_" sostituiti da spazi
-        return self.cartella_saveram() / (Path(rom).stem.replace("_", " ") + ".SaveRAM")
+        # melonDS usa il nome del file della ROM con l'estensione .sav
+        return self.cartella_saveram() / (Path(rom).stem + ".sav")
+
+    def salvataggio_bizhawk(self, rom) -> Path | None:
+        """Salvataggio della stessa ROM lasciato da BizHawk (versioni fino alla 5.5): serve per non perdere la run."""
+        nome = Path(rom).stem.replace("_", " ") + ".SaveRAM"
+        cartelle = []
+        if self.cfg.get("cartella_saveram"):
+            cartelle.append(Path(self.cfg["cartella_saveram"]))
+        if self.cfg.get("bizhawk"):
+            cartelle.append(Path(self.cfg["bizhawk"]).parent / "NDS" / "SaveRAM")
+        for c in cartelle:
+            f = c / nome
+            if f.is_file():
+                return f
+        return None
+
+    def migra_da_bizhawk(self, rom) -> str | None:
+        """Prima volta con melonDS: copia il salvataggio di BizHawk della run in corso (stesso formato del DS)."""
+        dest = self.file_saveram(rom)
+        if dest.exists():
+            return None
+        src = self.salvataggio_bizhawk(rom)
+        if not src:
+            return None
+        dati = src.read_bytes()
+        if self.vuoto(dati):
+            return None
+        dest.write_bytes(dati)
+        return f"Salvataggio della run ripreso da BizHawk ({src.name})"
 
     # ---------- randomizer ----------
     def randomizza(self, run: int, edizione: str = "") -> tuple[Path | None, str]:
@@ -164,9 +196,9 @@ class GestoreRun:
         Automatico: quando arriva lo starter (se non c'è ancora una partenza). Forzato: dal pulsante dell'app."""
         if not nome_rom or (not forza and (not self.cfg["salta_inizio"] or self.file_base.exists())):
             return None
-        src = self.cartella_saveram() / (nome_rom.replace("_", " ") + ".SaveRAM")
+        src = self.cartella_saveram() / (nome_rom + ".sav")
         if not src.exists():
-            return f"Non trovo il salvataggio di BizHawk ({src})."
+            return f"Non trovo il salvataggio del gioco ({src})."
         dati = src.read_bytes()
         if self.vuoto(dati):
             return "Non c'è nessun salvataggio fatto nel gioco: salva prima della scena dello starter."

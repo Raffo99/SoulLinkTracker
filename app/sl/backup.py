@@ -1,7 +1,7 @@
-"""Backup automatici della partita: uno stato salvato di BizHawk (il momento esatto) più una copia del
-salvataggio del gioco (SaveRAM). Ogni partita e ogni run hanno la loro cartella."""
+"""Backup automatici della partita: una copia del salvataggio del gioco (il file .sav di melonDS).
+Ogni partita e ogni run hanno la loro cartella. I backup fatti con BizHawk (.State + .SaveRAM) restano elencati:
+il loro salvataggio del gioco si può ancora rimettere."""
 import shutil
-import time
 from datetime import datetime
 from pathlib import Path
 
@@ -19,32 +19,42 @@ class GestoreBackup:
         return p
 
     def nuovo(self, run, tipo) -> Path:
-        """Percorso dello stato salvato per un backup nuovo."""
-        nome = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_{tipo}.State"
+        """Percorso del file per un backup nuovo."""
+        nome = datetime.now().strftime("%Y-%m-%d_%H-%M-%S") + f"_{tipo}.sav"
         return self.cartella(run) / nome
 
-    def completa(self, stato: Path, rom) -> bool:
-        """Dopo che BizHawk ha scritto lo stato: copia accanto anche il salvataggio del gioco."""
+    def fai(self, run, tipo, rom) -> Path | None:
+        """Copia il salvataggio attuale del gioco. None se il gioco non è mai stato salvato."""
+        src = self.run_mgr.file_saveram(rom)
+        if not src.exists():
+            return None
+        dest = self.nuovo(run, tipo)
         try:
-            src = self.run_mgr.file_saveram(rom)
-            if src.exists():
-                shutil.copyfile(src, stato.with_suffix(".SaveRAM"))
+            shutil.copyfile(src, dest)
         except OSError:
-            pass
-        return stato.exists()
+            return None
+        self.pulisci(run)
+        return dest
 
     def elenco(self, run) -> list:
         out = []
-        for f in sorted(self.cartella(run).glob("*.State"), reverse=True):
+        cart = self.cartella(run)
+        file = list(cart.glob("*.sav")) + list(cart.glob("*.State"))
+        for f in sorted(file, key=lambda f: f.stem, reverse=True):
             parti = f.stem.split("_")
             tipo = parti[-1] if len(parti) >= 3 else "auto"
             try:
                 quando = datetime.strptime("_".join(parti[:2]), "%Y-%m-%d_%H-%M-%S").timestamp()
             except ValueError:
                 quando = f.stat().st_mtime
-            sr = f.with_suffix(".SaveRAM")
-            out.append({"stato": f, "saveram": sr if sr.exists() else None, "tipo": tipo, "quando": quando,
-                        "byte": f.stat().st_size + (sr.stat().st_size if sr.exists() else 0)})
+            if f.suffix == ".sav":
+                sr, stato = f, None
+            else:                                               # backup di BizHawk
+                sr, stato = f.with_suffix(".SaveRAM"), f
+                if not sr.exists():
+                    sr = None
+            out.append({"stato": stato, "file": f, "saveram": sr, "tipo": tipo, "quando": quando,
+                        "byte": sum(x.stat().st_size for x in {f, sr} if x)})
         return out
 
     def pulisci(self, run):
@@ -54,7 +64,7 @@ class GestoreBackup:
             per_tipo.setdefault(b["tipo"], []).append(b)
         for tipo, lista in per_tipo.items():
             for b in lista[TIENI.get(tipo, 12):]:
-                for f in (b["stato"], b["saveram"]):
+                for f in {b["file"], b["saveram"]}:
                     if f:
                         try:
                             f.unlink()
@@ -62,17 +72,5 @@ class GestoreBackup:
                             pass
 
     def ultimo_chiusura(self, run, rom):
-        """Backup fatto alla chiusura più recente del salvataggio del gioco (per riprendere da lì)."""
-        chiusure = [b for b in self.elenco(run) if b["tipo"] in ("chiusura", "cambio")]
-        if not chiusure:
-            return None
-        b = chiusure[0]
-        try:
-            sr = self.run_mgr.file_saveram(rom)
-            if sr.exists() and sr.stat().st_mtime > b["quando"] + 30:
-                return None          # il gioco è stato salvato dopo: si riparte dal salvataggio normale
-        except OSError:
-            pass
-        if time.time() - b["quando"] > 60 * 60 * 24 * 14:
-            return None
-        return b
+        """Con melonDS il salvataggio del gioco è già quello giusto alla chiusura: niente da riprendere."""
+        return None

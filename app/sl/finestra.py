@@ -1,4 +1,4 @@
-"""Finestra principale: barra in alto, BizHawk a sinistra, riepilogo e dettagli a destra, comandi in basso."""
+"""Finestra principale: barra in alto, melonDS a sinistra, riepilogo e dettagli a destra, comandi in basso."""
 import html
 import unicodedata
 import shutil
@@ -16,12 +16,14 @@ from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QListW
 
 from . import VERSIONE
 from .config import Config, StatoLocale, cartella_app
-from .emulatore import Emulatore, adatta, incastra
+from . import melon as MEL
+from .melon import MelonDS
 from .impostazioni import Impostazioni
 from .pannelli import (PannelloCimitero, PannelloDiagnostica, PannelloDiario, PannelloObiettivi, PannelloPercorsi,
                        PannelloStatistiche)
-from .ponte import Ponte
-from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, MiniPokemon, Notifiche, OspiteGioco, PannelloCoppie, logo, paragrafi
+from .ponte import PonteInterno
+from .script import MotoreScript
+from .riepilogo import BarraSuperiore, CartaLuogo, CartaObiettivo, MiniPokemon, Notifiche, CorniceGioco, PannelloCoppie, logo, paragrafi
 from . import aggiorna, dialoghi
 from . import logica as L
 from .backup import TIPI as TIPI_BACKUP, GestoreBackup
@@ -57,7 +59,7 @@ _SOSTITUZIONI_OVERLAY = {"è": "e'", "é": "e'", "à": "a'", "ì": "i'", "ò": "
 
 
 def per_overlay(testo: str) -> str:
-    """Il testo disegnato da BizHawk sopra il gioco non ha gli accenti: si usa la grafia con l'apostrofo."""
+    """Testo per lo script (che con BizHawk lo disegnava sopra il gioco, senza accenti): grafia con l'apostrofo."""
     testo = testo.replace("Pokémon", "Pokemon").replace("Pokédex", "Pokedex")
     out = "".join(_SOSTITUZIONI_OVERLAY.get(c, c) for c in testo)
     out = unicodedata.normalize("NFKD", out).encode("ascii", "ignore").decode("ascii")
@@ -90,8 +92,10 @@ class Finestra(QMainWindow):
         self._ripresa_chiesta = set()
         self._chiusura_pronta = False
         self._in_chiusura = False
-        self.emu = Emulatore()
-        self.ponte = Ponte(self._risposta_script)
+        self.emu = MelonDS()
+        self.ponte = PonteInterno(self._risposta_script)
+        self.motore = None                # lo script del tracker, che legge la memoria di melonDS
+        self._scaricando = False
         self.sincro = Sincro(self.cfg)
         self.run_desiderata = self.locale.get("ultima_run", 1)
         self.stato_run = None
@@ -124,7 +128,7 @@ class Finestra(QMainWindow):
         split.setChildrenCollapsible(False)
         v.addWidget(split, 1)
 
-        # ---- area del gioco: segnaposto oppure BizHawk incastrato
+        # ---- area del gioco: segnaposto oppure melonDS incastrato, al centro di una cornice
         self.area_gioco = QWidget()
         self.area_gioco.setObjectName("pannello")
         self.area_gioco.setMinimumWidth(480)
@@ -151,8 +155,9 @@ class Finestra(QMainWindow):
         pv.addWidget(self.b_avvia_centro, 0, Qt.AlignHCenter)
         pv.addStretch()
         self.pile.addWidget(pag)
-        self.ospite = OspiteGioco()
-        self.pile.addWidget(self.ospite)
+        self.cornice = CorniceGioco(MEL.PROPORZIONE)
+        self.ospite = self.cornice.schermo
+        self.pile.addWidget(self.cornice)
         split.addWidget(self.area_gioco)
 
         # ---- colonna destra
@@ -223,7 +228,7 @@ class Finestra(QMainWindow):
         hb = QHBoxLayout(basso)
         hb.setContentsMargins(18, 8, 10, 8)
         hb.setSpacing(8)
-        self.i_gioco = Pallino("BizHawk")
+        self.i_gioco = Pallino("melonDS")
         self.i_script = Pallino("Script")
         self.i_sito = Pallino("Supabase")
         for i, w in enumerate((self.i_gioco, self.i_script, self.i_sito)):
@@ -251,7 +256,7 @@ class Finestra(QMainWindow):
         self.b_altro = QPushButton("Altro")
         self.b_imp = QPushButton("Impostazioni")
         self.b_vel = QPushButton("")
-        self.b_vel.setToolTip("Velocità del gioco (al posto delle scorciatoie di BizHawk). Tab tenuto premuto resta l'avanti veloce.")
+        self.b_vel.setToolTip("Velocità del gioco. Tab tenuto premuto in melonDS resta l'avanti veloce.")
         m_vel = QMenu(self)
         for perc, t in ((100, "×1 normale"), (200, "×2"), (300, "×3"), (400, "×4"), (800, "×8"), (6400, "Più veloce possibile")):
             a = m_vel.addAction(t)
@@ -308,7 +313,7 @@ class Finestra(QMainWindow):
         self.a_lega.triggered.connect(lambda val: self._azione({"azione": "lega", "valore": val}))
         self.b_regole.setMenu(self.m_regole)
         m_altro = QMenu(self)
-        self.a_console = m_altro.addAction("Mostra la console Lua di BizHawk")
+        self.a_console = m_altro.addAction("Mostra il menu di melonDS (tasti, audio, video…)")
         self.a_console.setCheckable(True)
         m_altro.addSeparator()
         m_altro.addAction("Backup e ripristino…", self._apri_backup)
@@ -323,7 +328,7 @@ class Finestra(QMainWindow):
     def _collega(self):
         self.b_nuova.clicked.connect(self._nuova_run)
         self.b_riavvia.clicked.connect(self._riavvia_gioco)
-        self.a_console.toggled.connect(self.emu.mostra_console)
+        self.a_console.toggled.connect(self._mostra_menu_melon)
         self.b_imp.clicked.connect(self._impostazioni)
         self.emu.finestra_pronta.connect(self._incastra)
         self.emu.terminato.connect(self._emu_terminato)
@@ -397,11 +402,14 @@ class Finestra(QMainWindow):
                 self.sincro.riconfigura()
         self.barra.imposta_partita(self.cfg.get("codice"))
         self._aggiorna_locale()
-        self._log(f"Ponte per BizHawk in ascolto sulla porta {self.ponte.porta}")
+        self._log(f"Emulatore: melonDS ({self.cfg.exe_melonds()})")
         if self.cfg.mancanti():
             self.segnaposto.setText("Completa le impostazioni per avviare il gioco.")
             self.b_avvia_centro.setText("Apri le impostazioni")
             self.b_avvia_centro.show()
+            return
+        if not self.cfg.exe_melonds().exists():
+            QTimer.singleShot(300, lambda: self._scarica_melon(self.assicura_gioco))
             return
         QTimer.singleShot(2500, self.assicura_gioco)
 
@@ -422,7 +430,7 @@ class Finestra(QMainWindow):
         self.assicura_gioco()
 
     def assicura_gioco(self):
-        """Fa in modo che BizHawk giri con la ROM della run attuale (generandola se serve)."""
+        """Fa in modo che melonDS giri con la ROM della run attuale (generandola se serve)."""
         if self._occupato or self.cfg.mancanti():
             return
         run = self.run_desiderata
@@ -448,7 +456,7 @@ class Finestra(QMainWindow):
             if self.emu.rom and Path(self.emu.rom) == rom:
                 return
             self._occupato = True
-            self._stato(f"Passo alla ROM della run #{run}: chiudo BizHawk…")
+            self._stato(f"Passo alla ROM della run #{run}: chiudo melonDS…")
             self._log(f"Cambio ROM: run #{run}")
             self.emu.ferma(alla_fine=self._avvia_richiesto.emit)
             return
@@ -479,22 +487,35 @@ class Finestra(QMainWindow):
         if not rom.exists():
             self.segnaposto.setText(f"Non trovo la ROM:\n{rom}")
             return
+        exe = self.cfg.exe_melonds()
+        if not exe.exists():
+            self._scarica_melon(lambda: self._avvia(rom, run))
+            return
+        try:
+            exe = MEL.copia_locale(exe)
+        except OSError as e:
+            self._log(f"Copia di melonDS non riuscita, uso quello indicato: {e}", WARN)
+        m = self.run_mgr.migra_da_bizhawk(rom)
+        if m:
+            self._log(m, OK)
         m = self.run_mgr.prepara_salvataggio(rom)
         if m:
             self._log(m, OK)
-            with self._lock:
-                self._avvisi_lua.append(m)
+            self.notifiche.mostra(m, OK, 8)
         lua = cartella_app() / "soullink.lua"
         try:
             shutil.copyfile(risorsa("soullink.lua"), lua)
         except Exception as e:
             self._log(f"Script Lua non copiato: {e}", KO)
         self.sincro.imposta_run_rom(run_della_rom(rom) if self.cfg["randomizza"] else None)
-        if self.emu.avvia(self.cfg["bizhawk"], rom, self.ponte.porta, lua):
-            self._log(f"Avvio BizHawk con {rom.name}")
-            self.segnaposto.setText("Avvio BizHawk…")
+        vel = int(self.cfg.get("velocita", 100) or 100)
+        if self.emu.avvia(exe, rom, self.run_mgr.cartella_saveram(), self.run_mgr.cartella_stati(), vel):
+            self._log(f"Avvio melonDS con {rom.name}")
+            self.segnaposto.setText("Avvio melonDS…")
+            self.cornice.imposta_didascalia(f"melonDS  ·  run #{run}  ·  {rom.stem}")
             self.b_avvia_centro.hide()
             self.i_gioco.imposta(True, "avvio")
+            self._avvia_script(lua)
             ed = self.edizione()
             viste = self.locale.get("edizioni", [])
             if ed and ed not in viste:
@@ -506,6 +527,56 @@ class Finestra(QMainWindow):
             self.b_avvia_centro.show()
         self._aggiorna_locale()
 
+    def _avvia_script(self, lua: Path):
+        """Lo script del tracker gira nell'app e legge la memoria di melonDS."""
+        if self.motore:
+            self.motore.ferma()
+        rom = self.emu.rom
+
+        def log(t):
+            self._in_gui.emit(lambda t=t: self._log(f"Script: {t}", TENUE))
+        self.motore = MotoreScript(lua, self.emu.ram, self.ponte.scambia, fps=self.emu.fps,
+                                   nome_rom=lambda: Path(rom).stem if rom else "", log=log,
+                                   collegato=self.ponte.imposta_collegato)
+        self.motore.start()
+
+    def _ferma_script(self):
+        if self.motore:
+            self.motore.ferma()
+            self.motore = None
+        self.ponte.imposta_collegato(False)
+
+    def _scarica_melon(self, poi):
+        """Prima volta: scarica melonDS da GitHub nella cartella dell'app."""
+        if self._scaricando:
+            return
+        self._scaricando = True
+        self._occupato = True
+        self.pile.setCurrentIndex(0)
+        self.b_avvia_centro.hide()
+        self.segnaposto.setText("Scarico melonDS (l'emulatore, circa 20 MB)…")
+
+        def lavoro():
+            exe, msg = MEL.scarica(lambda t: self._in_gui.emit(lambda t=t: self.segnaposto.setText(t)))
+
+            def fine():
+                self._scaricando = False
+                self._occupato = False
+                if exe:
+                    self._log(msg, OK)
+                    if (self.cfg.get("melonds") or "").strip() and Path(self.cfg["melonds"]) != exe:
+                        self.cfg["melonds"] = ""          # quello indicato non c'era: si usa la copia dell'app
+                        self.cfg.salva()
+                    poi()
+                else:
+                    self._log(msg, KO)
+                    self.segnaposto.setText("Non sono riuscito a scaricare melonDS:\n\n" + msg +
+                                            "\n\nPuoi scaricarlo da melonds.kuribo64.net e indicarlo nelle impostazioni.")
+                    self.b_avvia_centro.setText("Riprova")
+                    self.b_avvia_centro.show()
+            self._in_gui.emit(fine)
+        threading.Thread(target=lavoro, daemon=True).start()
+
     def _dopo_arresto(self):
         self._occupato = False
         self.pile.setCurrentIndex(0)
@@ -516,33 +587,52 @@ class Finestra(QMainWindow):
             self._impostazioni()
             return
         if self.emu.in_esecuzione:
-            if not dialoghi.chiedi(self, "Riavviare il gioco?", "BizHawk verrà chiuso e riaperto. Prima di chiuderlo "
-                                   "l'app fa un backup del punto in cui sei.", si="Riavvia", no="Annulla"):
+            if not dialoghi.chiedi(self, "Riavviare il gioco?", "melonDS verrà chiuso e riaperto. Prima di chiuderlo "
+                                   "l'app fa un backup del salvataggio del gioco: quello che non hai salvato nel gioco "
+                                   "va perso.", si="Riavvia", no="Annulla"):
                 return
             self._salva_e_ferma("cambio", self._avvia_richiesto.emit)
         else:
             self.assicura_gioco()
 
     def _emu_terminato(self, codice):
+        self._ferma_script()
         self.pile.setCurrentIndex(0)
         self.i_gioco.imposta(False, "chiuso")
         if not self._occupato:
-            self._log("BizHawk è stato chiuso.", WARN)
-            self.segnaposto.setText("BizHawk è stato chiuso.")
+            self._log("melonDS è stato chiuso.", WARN)
+            self.segnaposto.setText("melonDS è stato chiuso.")
             self.b_avvia_centro.setText("Avvia il gioco")
             self.b_avvia_centro.show()
 
-    # ================================================================ BizHawk dentro la finestra
+    # ================================================================ melonDS dentro la finestra
     def _incastra(self, hwnd):
         self.pile.setCurrentIndex(1)
         w, h = self.ospite.dimensioni_fisiche()
-        incastra(hwnd, int(self.ospite.winId()), w, h)
+        MEL.incastra(hwnd, int(self.ospite.winId()), w, h, 0)
         self.i_gioco.imposta(True, Path(self.emu.rom).stem if self.emu.rom else "")
-        self._log("BizHawk incastrato nella finestra")
+        self._log("melonDS incastrato nella finestra")
+        # il menu di melonDS si taglia via quando lo schermo (OpenGL) è pronto e se ne conosce l'altezza
+        for ritardo in (400, 1500, 4000):
+            QTimer.singleShot(ritardo, self._misura_menu)
+        if int(self.cfg.get("velocita", 100) or 100) > 100:
+            QTimer.singleShot(2500, lambda: self.emu.avanti_veloce(True))
+
+    def _misura_menu(self):
+        if self.emu.hwnd:
+            self.emu.calcola_menu()
+            self._adatta()
+
+    def _mostra_menu_melon(self, si):
+        self.emu.mostra_menu = si
+        self._misura_menu()
+        if si:
+            self.notifiche.mostra("Menu di melonDS visibile: Config → Input and hotkeys per i tasti. "
+                                  "Toglilo da Altro quando hai finito.", TENUE, 10)
 
     def _adatta(self):
         if self.emu.hwnd and self.pile.currentIndex() == 1:
-            adatta(self.emu.hwnd, *self.ospite.dimensioni_fisiche())
+            MEL.adatta(self.emu.hwnd, *self.ospite.dimensioni_fisiche(), self.emu.menu)
 
     # ================================================================ script (thread del ponte!)
     def _risposta_script(self, dati: dict) -> str:
@@ -629,6 +719,18 @@ class Finestra(QMainWindow):
         self.cfg["velocita"] = v
         self.cfg.salva()
         self._aggiorna_vel()
+        if not self.emu.in_esecuzione:
+            return
+        if v <= 100:
+            self.emu.avanti_veloce(False)
+            return
+        if abs(self.emu.avanti_veloce_avvio - 60 * v / 100) < 1 or (v >= 6400 and self.emu.avanti_veloce_avvio >= 60 * 64):
+            self.emu.avanti_veloce(True)
+            return
+        # melonDS legge la velocità dell'avanti veloce solo all'avvio
+        self.emu.avanti_veloce(True)
+        self.notifiche.mostra(f"Avanti veloce acceso alla velocità di prima (×{self.emu.avanti_veloce_avvio / 60:.0f}). "
+                              "La nuova velocità vale dal prossimo avvio del gioco (Riavvia gioco).".replace(".0f", ""), ORO, 9)
 
     def _aggiorna_vel(self, reale=None):
         v = int(self.cfg.get("velocita", 100) or 100)
@@ -638,7 +740,7 @@ class Finestra(QMainWindow):
             testo += f" ({reale:.1f})".replace(".", ",")
             self.b_vel.setToolTip(f"Velocità scelta: {nome}. Velocità vera del gioco adesso: ×{reale:.1f}".replace(".", ",")
                                   + ". Se resta più bassa di quella scelta, il PC non ce la fa ad andare più veloce. "
-                                  "Tab tenuto premuto resta l'avanti veloce di BizHawk.")
+                                  "Tab tenuto premuto in melonDS resta l'avanti veloce.")
         self.b_vel.setText(testo)
         for a in self.m_vel.actions():
             a.setChecked(a.data() == v)
@@ -658,7 +760,7 @@ class Finestra(QMainWindow):
             self._vel_campione = (fc, ora)
 
     def _controlla_focus(self):
-        """L'app (con BizHawk dentro) è la finestra in primo piano? Se no, i tasti non devono arrivare al gioco."""
+        """L'app (con melonDS dentro) è la finestra in primo piano?"""
         if sys.platform == "win32":
             try:
                 import ctypes
@@ -910,7 +1012,7 @@ class Finestra(QMainWindow):
         self.i_script.imposta(ok, "collegato" if ok else "")
         self.sincro.imposta_presenza(emulatore=ok)
         if ok:
-            self._log("Lo script di BizHawk è collegato all'app", OK)
+            self._log("Lo script del tracker legge la memoria di melonDS", OK)
             self._ultimo_backup = time.time()
             self._carica_impara()
             from .config import cartella_documenti
@@ -1102,7 +1204,7 @@ class Finestra(QMainWindow):
                 if partenza and not locale and self.run_mgr.file_base.exists():
                     self.run_mgr.file_base.unlink()
                     via.append(self.run_mgr.file_base)
-                self._log(f"Cancellati {len(via)} file (ROM, salvataggi e stati di BizHawk)", OK)
+                self._log(f"Cancellati {len(via)} file (ROM, salvataggi e stati di melonDS)", OK)
             self.locale.update(ultima_run=1)
             self.locale.salva()
             self._aggiorna_locale()
@@ -1116,7 +1218,7 @@ class Finestra(QMainWindow):
                 self._avvia_richiesto.emit()
 
         self._occupato = True
-        self._dopo_reset = dopo_arresto          # prima di chiedere la chiusura: BizHawk può chiudersi in fretta
+        self._dopo_reset = dopo_arresto          # prima di chiedere la chiusura: melonDS può chiudersi in fretta
         if self.emu.in_esecuzione:
             self.emu.ferma(alla_fine=self._per_reset.emit)
         else:
@@ -1146,26 +1248,20 @@ class Finestra(QMainWindow):
         return run_della_rom(self.emu.rom) if self.emu.rom else None
 
     def _chiedi_backup(self, tipo, alla_fine=None, attesa=6.0):
-        """Chiede allo script uno stato salvato + il salvataggio del gioco. alla_fine(ok) arriva sempre (anche se va male)."""
+        """Copia il salvataggio del gioco (il .sav di melonDS). alla_fine(ok) arriva sempre (anche se va male)."""
         run = self._run_in_gioco()
-        if not (self.emu.in_esecuzione and self.ponte.attivo and run is not None):
-            if alla_fine:
-                alla_fine(False)
-            return
-        self._id_richiesta += 1
-        rid = self._id_richiesta
-        percorso = self.backup.nuovo(run, tipo)
-        self._richieste[rid] = {"tipo": tipo, "percorso": percorso, "rom": self.emu.rom, "run": run, "alla_fine": alla_fine}
-        with self._lock:
-            self._comandi_lua.append(f"BACKUP {rid} {percorso}")
-
-        def scaduto():
-            r = self._richieste.pop(rid, None)
-            if r:
-                self._log("Backup non riuscito: lo script non ha risposto", WARN)
-                if r["alla_fine"]:
-                    r["alla_fine"](False)
-        QTimer.singleShot(int(attesa * 1000), scaduto)
+        ok = False
+        if self.emu.rom and run is not None:
+            f = self.backup.fai(run, tipo, self.emu.rom)
+            ok = f is not None
+            if ok:
+                if tipo == "auto":
+                    self._ultimo_backup = time.time()
+                self._log(f"Backup {TIPI_BACKUP.get(tipo, tipo)} salvato ({f.name})", OK)
+            elif tipo != "auto":
+                self._log("Backup non fatto: il gioco non è ancora stato salvato", WARN)
+        if alla_fine:
+            alla_fine(ok)
 
     def _gestisci_risposte(self, risposte):
         for x in risposte:
@@ -1210,7 +1306,7 @@ class Finestra(QMainWindow):
                         self._ultimo_backup = time.time()
                     self._log(f"Backup {TIPI_BACKUP.get(r['tipo'], r['tipo'])} salvato ({r['percorso'].name})", OK)
                 else:
-                    self._log("Backup non riuscito: BizHawk non ha scritto lo stato salvato", WARN)
+                    self._log("Backup non riuscito", WARN)
                 if r["alla_fine"]:
                     r["alla_fine"](ok)
             elif x.get("tipo") == "caricato":
@@ -1219,8 +1315,8 @@ class Finestra(QMainWindow):
                     self.notifiche.mostra("Ripreso da dove avevi lasciato", OK)
                     QTimer.singleShot(8000, self._controllo_automatico)
                 else:
-                    self._log("BizHawk non è riuscito a caricare il backup", KO)
-                    dialoghi.avviso(self, "Backup non caricato", "BizHawk non è riuscito a caricare lo stato salvato. "
+                    self._log("Backup non caricato", KO)
+                    dialoghi.avviso(self, "Backup non caricato", "Lo stato salvato non è stato caricato. "
                                     "Puoi riprovare dalla finestra Backup oppure continuare dal salvataggio del gioco.", "errore")
                 if r["alla_fine"]:
                     r["alla_fine"](bool(x.get("ok")))
@@ -1345,18 +1441,13 @@ class Finestra(QMainWindow):
             self._chiedi_backup("auto")
 
     def _carica_backup(self, b, alla_fine=None):
-        if not (self.emu.in_esecuzione and self.ponte.attivo):
-            dialoghi.avviso(self, "Gioco non avviato", "Avvia prima il gioco: lo script deve essere collegato.", "info")
-            return
-        self._id_richiesta += 1
-        rid = self._id_richiesta
-        self._richieste[rid] = {"tipo": "carica", "percorso": b["stato"], "rom": self.emu.rom, "run": self._run_in_gioco(),
-                                "alla_fine": alla_fine}
-        with self._lock:
-            self._comandi_lua.append(f"CARICA {rid} {b['stato']}")
+        """Con melonDS riprendere da un backup vuol dire rimettere il suo salvataggio del gioco."""
+        self._ripristina_saveram(b)
+        if alla_fine:
+            alla_fine(True)
 
     def _ripristina_saveram(self, b):
-        """Rimette il salvataggio del gioco di un backup (BizHawk va chiuso e riaperto)."""
+        """Rimette il salvataggio del gioco di un backup (melonDS va chiuso e riaperto)."""
         rom = self.emu.rom or self.rom_attesa()
         dest = self.run_mgr.file_saveram(rom)
 
@@ -1365,7 +1456,7 @@ class Finestra(QMainWindow):
                 if dest.exists():
                     shutil.copyfile(dest, dest.with_suffix(".prima_del_ripristino"))
                 shutil.copyfile(b["saveram"], dest)
-                self._log(f"Salvataggio del gioco ripristinato dal backup {b['stato'].name}", OK)
+                self._log(f"Salvataggio del gioco ripristinato dal backup {b['file'].name}", OK)
             except OSError as e:
                 dialoghi.avviso(self, "Ripristino non riuscito", str(e), "errore")
             self._occupato = False
@@ -1378,16 +1469,15 @@ class Finestra(QMainWindow):
             copia()
 
     def _salva_e_ferma(self, tipo, dopo):
-        """Backup del momento attuale, poi chiusura di BizHawk (che scrive anche il salvataggio del gioco)."""
+        """Chiusura di melonDS (che scrive il salvataggio del gioco), poi una copia del salvataggio come backup."""
         self._occupato = True
-        fatto = {"si": False}
+        self._ferma_script()
 
-        def ferma(ok=False):
-            if fatto["si"]:
-                return
-            fatto["si"] = True
-            self.emu.ferma(alla_fine=lambda: self._in_gui.emit(dopo))
-        self._chiedi_backup(tipo, ferma)
+        def chiuso():
+            self._chiedi_backup(tipo)
+            dopo()
+        # sempre al giro dopo del ciclo degli eventi: chiuso() può chiudere la finestra (anche da closeEvent)
+        self.emu.ferma(alla_fine=lambda: self._in_gui.emit(lambda: QTimer.singleShot(0, chiuso)))
 
     def _proponi_ripresa(self):
         """All'avvio del gioco: se l'ultima volta l'app è stata chiusa senza salvare in gioco, propone di riprendere da lì."""
@@ -1682,7 +1772,7 @@ class Finestra(QMainWindow):
                 dialoghi.avviso(self, "Aggiornamento non installato", str(e), "errore")
                 return
             self._log(f"Versione {info['versione']} installata: riavvio", OK)
-            self.close()                              # backup, chiusura di BizHawk, poi riavvio (in closeEvent)
+            self.close()                              # chiusura di melonDS, backup, poi riavvio (in closeEvent)
 
     # ================================================================ partite
     def _cambia_partita(self):
@@ -1700,10 +1790,10 @@ class Finestra(QMainWindow):
         self._partita_nuova = codice
         if self.emu.in_esecuzione:
             if not dialoghi.chiedi(self, f"Passare alla partita «{codice}»?",
-                                   "BizHawk verrà chiuso: prima l'app fa un backup del punto in cui sei.",
+                                   "melonDS verrà chiuso e l'app farà un backup del salvataggio del gioco: salva prima nel gioco!",
                                    si="Cambia partita", no="Annulla"):
                 return
-            self._stato("Faccio un backup e chiudo BizHawk per cambiare partita…")
+            self._stato("Chiudo melonDS e faccio un backup per cambiare partita…")
             self._salva_e_ferma("cambio", self._per_cambio.emit)
         else:
             self._applica_partita()
@@ -1751,9 +1841,10 @@ class Finestra(QMainWindow):
 
     def _aggiorna_locale(self):
         self.p_diag.locale = {
-            "versione app": VERSIONE, "partita": self.cfg.get("codice") or "-", "porta ponte": self.ponte.porta, "BizHawk": self.cfg["bizhawk"],
+            "versione app": VERSIONE, "partita": self.cfg.get("codice") or "-", "melonDS": str(self.cfg.exe_melonds()),
+            "script": ("legge la memoria" if self.ponte.attivo else ("errore: " + self.motore.errore if self.motore and self.motore.errore else "fermo")),
             "ROM in uso": str(self.emu.rom) if self.emu.rom else "-",
-            "cartella ROM": str(self.run_mgr.cartella_rom), "salvataggi BizHawk": str(self.run_mgr.cartella_saveram()),
+            "cartella ROM": str(self.run_mgr.cartella_rom), "salvataggi del gioco": str(self.run_mgr.cartella_saveram()),
             "salvataggio di partenza": "presente" if self.run_mgr.file_base.exists() else "non ancora creato",
             "dati scaricati da Supabase": f"{self.sincro.archivio.byte_scaricati // 1024} KB",
         }
@@ -1779,6 +1870,7 @@ class Finestra(QMainWindow):
                 self.close()
             self._salva_e_ferma("chiusura", chiudi)
             return
+        self._ferma_script()
         self.sincro.ferma()
         self.ponte.chiudi()
         ev.accept()

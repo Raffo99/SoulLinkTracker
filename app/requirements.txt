@@ -1,1 +1,2 @@
 PySide6-Essentials==6.12.0
+lupa>=2.2

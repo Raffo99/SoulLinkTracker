@@ -38,7 +38,7 @@ class DialogoAggiornamento(QDialog):
         tv.addWidget(t)
         mb = (info.get("dimensione") or 0) / 1048576
         s = QLabel(f"Tu hai la {VERSIONE}. L'app scarica il nuovo programma ({mb:.0f} MB), fa un backup della partita, "
-                   "chiude BizHawk e si riavvia da sola.")
+                   "chiude melonDS e si riavvia da sola.")
         s.setObjectName("dialogoTesto")
         s.setWordWrap(True)
         tv.addWidget(s)

@@ -1,4 +1,7 @@
-"""Ponte locale con BizHawk.
+"""Ponte locale tra lo script del tracker e l'app.
+
+Con melonDS lo script gira dentro l'app (vedi script.py) e usa PonteInterno: stesso protocollo, senza rete.
+Il ponte via TCP (Ponte) resta per le prove e per chi usa ancora BizHawk.
 
 BizHawk, avviato con --socket_ip/--socket_port, si collega a questo server TCP.
 Protocollo (BizHawk >= 2.6.2): ogni messaggio è "<lunghezza in byte> <testo UTF-8>" in tutti e due i versi.
@@ -95,3 +98,35 @@ class Ponte(QObject):
             self._srv.close()
         except Exception:
             pass
+
+
+class PonteInterno(QObject):
+    """Stesse risposte e stessi segnali del Ponte, ma lo script chiama direttamente scambia() dal suo thread."""
+    collegato = Signal(bool)
+    payload = Signal(dict)
+
+    def __init__(self, gestore_risposta):
+        super().__init__()
+        self._gestore = gestore_risposta
+        self.porta = 0
+        self.attivo = False
+
+    def imposta_collegato(self, si: bool):
+        if si != self.attivo:
+            self.attivo = si
+            self.collegato.emit(si)
+
+    def scambia(self, testo: str) -> str:
+        try:
+            dati = json.loads(testo)
+        except Exception:
+            dati = {}
+        try:
+            risposta = self._gestore(dati)
+        except Exception as e:  # mai lasciare lo script senza risposta
+            risposta = f"ERR {e}\n"
+        self.payload.emit(dati)
+        return risposta or "OK\n"
+
+    def chiudi(self):
+        pass
