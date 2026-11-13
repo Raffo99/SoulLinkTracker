@@ -160,8 +160,9 @@ class Finestra(QMainWindow):
         pv.addWidget(self.b_avvia_centro, 0, Qt.AlignHCenter)
         pv.addStretch()
         self.pile.addWidget(pag)
-        self.cornice = CorniceGioco(MEL.proporzione(bool(self.cfg.get("schermi_orizzontali"))))
-        self.ospite = self.cornice.schermo
+        self.cornice = CorniceGioco(bool(self.cfg.get("schermi_orizzontali")))
+        self.ospite = self.cornice.schermo               # schermo superiore
+        self.ospite2 = self.cornice.schermo2             # schermo touch
         self.pile.addWidget(self.cornice)
         # colonna sinistra: il gioco; con gli schermi affiancati sotto ci vanno anche le schede (Coppie…)
         self.sinistra = QWidget()
@@ -171,7 +172,6 @@ class Finestra(QMainWindow):
         self._sl.addWidget(self.area_gioco, 1)
         split.addWidget(self.sinistra)
         self.split = split
-        split.splitterMoved.connect(lambda *_: getattr(self, "_orizz", False) and QTimer.singleShot(0, self._altezza_gioco))
 
         # ---- colonna destra
         destra = QWidget()
@@ -420,10 +420,11 @@ class Finestra(QMainWindow):
         self.barra.cambia_partita.connect(self._cambia_partita)
         self._gioco_selezionato = False
         QApplication.instance().installEventFilter(self)          # tastiera al gioco anche quando ce l'ha l'app
-        self.ospite.ridimensionato.connect(self._adatta)
-        self._t_adatta = QTimer(self)
-        self._t_adatta.timeout.connect(self._adatta)
-        self._t_adatta.start(1000)
+        # niente controllo ogni secondo (faceva fare a melonDS piccolo-grande): si sistema quando cambia il riquadro
+        self._t_rimisura = QTimer(self)
+        self._t_rimisura.setSingleShot(True)
+        self._t_rimisura.timeout.connect(self._misura_menu)
+        self.cornice.ridimensionato.connect(self._adatta_dopo)
         self._disposizione_schermi(bool(self.cfg.get("schermi_orizzontali")))
         self._t_tempo = QTimer(self)
         self._t_tempo.timeout.connect(self.barra.tic)
@@ -558,10 +559,8 @@ class Finestra(QMainWindow):
             self._log(f"Script Lua non copiato: {e}", KO)
         self.sincro.imposta_run_rom(run_della_rom(rom) if self.cfg["randomizza"] else None)
         vel = int(self.cfg.get("velocita", 100) or 100)
-        orizz = bool(self.cfg.get("schermi_orizzontali"))
-        self._disposizione_schermi(orizz)
         if self.emu.avvia(exe, rom, self.run_mgr.cartella_saveram(), self.run_mgr.cartella_stati(), vel,
-                          int(self.cfg.get("volume", 5)), orizz):
+                          int(self.cfg.get("volume", 5))):
             self._log(f"Avvio melonDS con {rom.name}")
             self.segnaposto.setText("Avvio melonDS…")
             self.b_avvia_centro.hide()
@@ -659,9 +658,12 @@ class Finestra(QMainWindow):
     # ================================================================ melonDS dentro la finestra
     def _incastra(self, hwnd):
         self.pile.setCurrentIndex(1)
-        w, h = self.ospite.dimensioni_fisiche()
         self.emu.calcola_scarti()
-        MEL.incastra(hwnd, int(self.ospite.winId()), w, h, self.emu.scarti)
+        MEL.incastra(hwnd, int(self.ospite.winId()), *self.ospite.dimensioni_fisiche(), self.emu.scarti)
+        if self.emu.hwnd2:
+            MEL.incastra(self.emu.hwnd2, int(self.ospite2.winId()), *self.ospite2.dimensioni_fisiche(), self.emu.scarti2)
+        else:
+            self._log("melonDS: la seconda finestra (schermo touch) non è comparsa", WARN)
         self.i_gioco.imposta(True, Path(self.emu.rom).stem if self.emu.rom else "")
         self._log("melonDS incastrato nella finestra")
         # menu e bordi di melonDS si tagliano via misurando dove sta il suo schermo (appena è pronto)
@@ -675,50 +677,18 @@ class Finestra(QMainWindow):
             QTimer.singleShot(3000, self._riprendi_stato)
 
     def _disposizione_schermi(self, orizzontale: bool):
-        """Schermi affiancati: il gioco è largo e basso, quindi le schede (Coppie, Percorsi…) vanno sotto il gioco."""
+        """Schermi uno sopra l'altro o affiancati (superiore a sinistra): lo fa l'app spostando le due finestre di
+        melonDS, quindi niente riavvio. Il resto della finestra resta com'è."""
         if getattr(self, "_orizz", None) == orizzontale:
             return
         self._orizz = orizzontale
-        self.cornice.proporzione = MEL.proporzione(orizzontale)
-        if orizzontale:
-            self._dv.removeWidget(self.tabs)
-            self._dv.addStretch(1)                          # la colonna destra resta in alto
-            self._sl.addWidget(self.tabs, 2)
-            self._sl.setStretchFactor(self.area_gioco, 3)
-            self.split.setSizes([int(self.split.width() * 0.62), int(self.split.width() * 0.38)])
-        else:
-            self._sl.removeWidget(self.tabs)
-            ultimo = self._dv.itemAt(self._dv.count() - 1)
-            if ultimo is not None and ultimo.spacerItem() is not None:
-                self._dv.removeItem(ultimo)
-            self._dv.addWidget(self.tabs, 1)
-            self.split.setSizes([int(self.split.width() * 0.58), int(self.split.width() * 0.42)])
-        self._altezza_gioco()
-        self.cornice.schermo.setGeometry(self.cornice.area_schermo())
-        self.cornice.update()
-        QTimer.singleShot(0, self._adatta)
-
-    def _altezza_gioco(self):
-        """Schermi affiancati: il riquadro del gioco alto quanto serve, il resto alle schede sotto."""
-        if getattr(self, "_orizz", False):
-            m = 2 * (22 + CorniceGioco.BORDO)
-            self.area_gioco.setMaximumHeight(max(160, int((self.sinistra.width() - m) / self.cornice.proporzione) + m))
-        else:
-            self.area_gioco.setMaximumHeight(16777215)
+        self.cornice.imposta_orizzontale(orizzontale)
+        QTimer.singleShot(0, self._adatta_dopo)
 
     def _cambia_schermi(self, si):
         self.cfg["schermi_orizzontali"] = bool(si)
         self.cfg.salva()
-        if not self.emu.in_esecuzione:
-            self._disposizione_schermi(bool(si))
-            return
-        # melonDS legge la disposizione degli schermi solo all'avvio
-        if dialoghi.chiedi(self, "Cambiare la disposizione degli schermi?",
-                           "melonDS va riavviato: prima l'app fa un backup del punto esatto in cui sei e poi ti chiede "
-                           "se riprendere da lì.", si="Riavvia ora", no="Al prossimo avvio"):
-            self._ripresa_chiesta.discard(str(self.emu.rom))
-            self._riprendi_senza_chiedere = True
-            self._salva_e_ferma("cambio", self._avvia_richiesto.emit)
+        self._disposizione_schermi(bool(si))
 
     def _riprendi_stato(self):
         if self.emu.da_caricare and self.emu.hwnd:
@@ -747,6 +717,13 @@ class Finestra(QMainWindow):
             if misura:
                 self.emu.calcola_scarti()
             MEL.adatta(self.emu.hwnd, *self.ospite.dimensioni_fisiche(), self.emu.scarti)
+            if self.emu.hwnd2:
+                MEL.adatta(self.emu.hwnd2, *self.ospite2.dimensioni_fisiche(), self.emu.scarti2)
+
+    def _adatta_dopo(self):
+        """Dopo un ridimensionamento: si sistema subito e si rimisura un attimo dopo (a finestra ferma)."""
+        self._adatta(misura=False)
+        self._t_rimisura.start(350)
 
     # ================================================================ script (thread del ponte!)
     def _risposta_script(self, dati: dict) -> str:
@@ -912,7 +889,7 @@ class Finestra(QMainWindow):
                 import ctypes
                 if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000:          # tasto sinistro premuto
                     from PySide6.QtGui import QCursor
-                    if self.ospite.rect().contains(self.ospite.mapFromGlobal(QCursor.pos())):
+                    if self.cornice.rect().contains(self.cornice.mapFromGlobal(QCursor.pos())):
                         self._gioco_selezionato = True
                 # gioco selezionato: la tastiera deve stare a melonDS (se l'app se l'è ripresa, gliela ridiamo)
                 if (getattr(self, "_gioco_selezionato", False) and not self.emu.ha_focus()
@@ -2091,8 +2068,6 @@ class Finestra(QMainWindow):
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
         self._adatta_schermo_piccolo()
-        if getattr(self, "_orizz", False):
-            QTimer.singleShot(0, self._altezza_gioco)
 
     def _adatta_schermo_piccolo(self):
         w, h = self.width(), self.height()

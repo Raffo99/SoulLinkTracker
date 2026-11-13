@@ -1,3 +1,8 @@
+**6.2.1**
+- **Schermi affiancati senza riavvio**: melonDS ora apre due finestre (una per lo schermo superiore, una per il touch) e l'app le mette uno sopra l'altro o affiancate (superiore a sinistra, touch a destra). Il cambio da *Altro → Schermi affiancati* è immediato. Il gioco resta nella colonna di sinistra come in verticale; le schede restano a destra.
+- **Niente più "piccolo e grande"**: l'app non risistema più melonDS ogni secondo. Lo fa solo quando cambia lo spazio del gioco, e una misura nuova di menu e bordi vale solo se si ripete uguale.
+- Riduci, ingrandisci e chiudi sono in orizzontale, in alto a destra.
+
 **6.2.0: collegamento diretto tra le app**
 - **Niente più Supabase obbligatorio.** Le app si trovano con il **codice della partita** sui relay Nostr pubblici, poi parlano **direttamente** (WebRTC, come una videochiamata). Se un router blocca la connessione diretta, i dati passano da relay **MQTT** pubblici, che tengono anche l'ultimo stato: chi si collega dopo lo recupera anche se gli altri sono offline. Niente server vostro, niente account, niente impostazioni del router.
 - **Tutto cifrato** con la chiave del codice della partita (i relay vedono solo dati illeggibili). Viaggiano solo i dati del tracker, mai ROM o salvataggi. Ogni app tiene anche una copia della partita sul PC.

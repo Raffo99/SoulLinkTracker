@@ -37,6 +37,9 @@ if WIN:
     user32.SetFocus.restype = wintypes.HWND
     user32.GetFocus.restype = wintypes.HWND
     user32.IsChild.argtypes = [wintypes.HWND, wintypes.HWND]
+    user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
+    user32.GetWindow.restype = wintypes.HWND
+    GW_OWNER = 4
     user32.GetKeyboardState.argtypes = [ctypes.c_void_p]
     user32.SetKeyboardState.argtypes = [ctypes.c_void_p]
     WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
@@ -221,19 +224,28 @@ def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: floa
         "Screen.UseGL": True,                # schermo in una finestra sua: serve per tagliare via il menu
         "Instance0.SaveFilePath": str(salvataggi),
         "Instance0.SavestatePath": str(stati),
-        "Instance0.Window0.ScreenLayout": 2 if orizzontale else 0,     # 2 = affiancati, 0 = uno sopra l'altro
-        "Instance0.Window0.ScreenRotation": 0,
-        "Instance0.Window0.ScreenSizing": 0,
-        "Instance0.Window0.ScreenSwap": False,          # superiore sopra (o a sinistra), touch sotto (o a destra)
-        "Instance0.Window0.ScreenGap": SPAZIO_SCHERMI,
-        "Instance0.Window0.IntegerScaling": False,
-        "Instance0.Window0.ScreenAspectTop": 0,
-        "Instance0.Window0.ScreenAspectBot": 0,
-        "Instance0.Window0.Geometry": "",     # la posizione salvata da incastrata non ha senso da sola
+        # due finestre di melonDS: la principale mostra solo lo schermo superiore, la seconda solo il touch.
+        # Così l'app le mette uno sopra l'altro o affiancati come vuole, senza riavviare melonDS.
+        "Instance0.Window0.ScreenSizing": 4,              # solo schermo superiore
+        "Instance0.Window1.Enabled": True,
+        "Instance0.Window1.ScreenSizing": 5,              # solo touch
+    }
+    for w in ("Window0", "Window1"):
+        imposti.update({
+            f"Instance0.{w}.ScreenLayout": 0,
+            f"Instance0.{w}.ScreenRotation": 0,
+            f"Instance0.{w}.ScreenSwap": False,
+            f"Instance0.{w}.ScreenGap": 0,
+            f"Instance0.{w}.IntegerScaling": False,
+            f"Instance0.{w}.ScreenAspectTop": 0,
+            f"Instance0.{w}.ScreenAspectBot": 0,
+            f"Instance0.{w}.Geometry": "",              # la posizione salvata da incastrata non ha senso da sola
+        })
+    imposti.update({
         "Instance0.Keyboard.HK_FastForwardToggle": TASTO_F20,
         # con il mixer di Windows il volume si regola dall'app mentre si gioca; senza, vale quello di partenza
         "Instance0.Audio.Volume": 256 if volume_dal_mixer() else round(2.56 * volume),
-    }
+    })
     for k, v in imposti.items():
         _poni(d, k, v)
     for k, v in K.items():                                       # tasti del DS solo se non li hai ancora scelti
@@ -348,7 +360,7 @@ def titolo(hwnd) -> str:
 
 # ------------------------------------------------------------------ emulatore
 class MelonDS(QObject):
-    finestra_pronta = Signal(int)      # hwnd della finestra principale di melonDS
+    finestra_pronta = Signal(int)      # hwnd della finestra principale di melonDS (schermo superiore)
     terminato = Signal(int)            # codice di uscita
     errore = Signal(str)
 
@@ -358,6 +370,8 @@ class MelonDS(QObject):
         self.hwnd = None
         self.rom = None
         self.scarti = (0, 0, 0, 0)     # menu e bordi di melonDS intorno allo schermo (tagliati via)
+        self.hwnd2 = None              # seconda finestra di melonDS (schermo touch)
+        self.scarti2 = (0, 0, 0, 0)
         self.volume = 5                # percentuale
         self._vol_sessione = None
         self._vol_messo = None
@@ -392,7 +406,7 @@ class MelonDS(QObject):
         self.avanti_veloce_avvio = 60.0 * max(2, velocita / 100) if velocita > 100 else 60.0 * 3
         try:
             self.volume = max(0, min(100, int(volume)))
-            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio, self.volume, orizzontale)
+            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio, self.volume)
         except Exception as e:
             self.errore.emit(f"Configurazione di melonDS non scritta: {e}")
             return False
@@ -414,10 +428,10 @@ class MelonDS(QObject):
         self.rom = Path(rom)
         self.stati = Path(stati)
         self._firma = M.firma_rom(rom)
-        self.hwnd = None
+        self.hwnd = self.hwnd2 = None
         self._veloce = False
         self._vol_sessione, self._vol_messo = None, None
-        self.scarti = (0, 0, 0, 0)
+        self.scarti = self.scarti2 = (0, 0, 0, 0)
         self._chiudi_memoria()
         self._cerca_dal = time.time()
         return True
@@ -462,7 +476,7 @@ class MelonDS(QObject):
         ora = time.monotonic()
         if ora - self._fps_letto > 0.5:
             self._fps_letto = ora
-            m = re.match(r"\[(\d+)/", titolo(self.hwnd)) if self.hwnd else None
+            m = re.search(r"\[(\d+)/\d+\]", titolo(self.hwnd)) if self.hwnd else None     # "[w1] [60/60] melonDS"
             self._fps = float(m.group(1)) if m else None
         return self._fps
 
@@ -472,7 +486,7 @@ class MelonDS(QObject):
             return
         codice = self.proc.poll()
         if codice is not None:
-            self.proc, self.hwnd = None, None
+            self.proc, self.hwnd, self.hwnd2 = None, None, None
             self._chiudi_memoria()
             self.terminato.emit(codice)
             return
@@ -482,21 +496,45 @@ class MelonDS(QObject):
         if not WIN or self.hwnd is not None:
             return
         finestre = finestre_del_processo(self.proc.pid)
-        cand = [(a, h) for h, t, a in finestre if "melonDS" in t]
+        cand = [h for h, t, a in finestre if "melonDS" in t]
         if not cand and time.time() - self._cerca_dal > 8:
-            cand = [(a, h) for h, t, a in finestre if a > 40000]
-        if cand:
-            self.hwnd = max(cand)[1]
-            self.finestra_pronta.emit(self.hwnd)
+            cand = [h for h, t, a in finestre if a > 40000]
+        if not cand:
+            return
+        # la seconda finestra (solo touch) è "di proprietà" della principale; con due finestre melonDS scrive anche
+        # [w1] e [w2] all'inizio del titolo
+        titoli = {h: t for h, t, a in finestre}
+        w1 = [h for h in cand if titoli.get(h, "").startswith("[w1]")]
+        w2 = [h for h in cand if titoli.get(h, "").startswith("[w2]")]
+        if w1 and w2:
+            principali, seconde = w1, w2
+        else:
+            principali = [h for h in cand if not user32.GetWindow(h, GW_OWNER)]
+            seconde = [h for h in cand if user32.GetWindow(h, GW_OWNER)]
+        if not principali:
+            return
+        if not seconde and time.time() - self._cerca_dal < 8:
+            return                                        # la seconda finestra arriva un attimo dopo
+        self.hwnd = principali[0]
+        self.hwnd2 = seconde[0] if seconde else None
+        self.finestra_pronta.emit(self.hwnd)
 
     def calcola_scarti(self) -> bool:
-        """Misura di nuovo menu e bordi. True se sono cambiati (la finestra va risistemata)."""
-        if self.mostra_menu:
-            nuovi = (0, 0, 0, 0)
-        else:
-            nuovi = misura_scarti(self.hwnd) or (self.scarti if any(self.scarti) else scarti_stimati(self.hwnd))
-        cambiati = nuovi != self.scarti
-        self.scarti = nuovi
+        """Misura di nuovo menu e bordi delle due finestre. True se sono cambiati (vanno risistemate)."""
+        def misura(h, vecchi):
+            if self.mostra_menu or not h:
+                return (0, 0, 0, 0)
+            return misura_scarti(h) or (vecchi if any(vecchi) else scarti_stimati(h))
+        nuovi = (misura(self.hwnd, self.scarti), misura(self.hwnd2, self.scarti2))
+        # una misura nuova vale solo se si ripete uguale due volte di fila: mentre melonDS si sta ridisegnando
+        # (per esempio dopo uno stato salvato) le misure possono saltare, e la finestra faceva piccola-grande
+        prima_volta = not any(self.scarti) and not any(self.scarti2)
+        if nuovi != (self.scarti, self.scarti2) and not prima_volta and nuovi != getattr(self, "_misura_prec", None):
+            self._misura_prec = nuovi
+            return False
+        self._misura_prec = nuovi
+        cambiati = nuovi != (self.scarti, self.scarti2)
+        self.scarti, self.scarti2 = nuovi
         return cambiati
 
     # ---------------------------------------------------------------- tastiera

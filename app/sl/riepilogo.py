@@ -305,7 +305,7 @@ class BarraSuperiore(QFrame):
         self.b_chiudi = QPushButton("✕")
         for b, tip in ((self.b_riduci, "Riduci a icona"), (self.b_ingrandisci, "Ingrandisci / ripristina"), (self.b_chiudi, "Chiudi")):
             b.setObjectName("finestra")
-            b.setFixedSize(30, 24)
+            b.setFixedSize(32, 26)
             b.setFocusPolicy(Qt.NoFocus)
             b.setToolTip(tip)
             b.setCursor(Qt.PointingHandCursor)
@@ -313,9 +313,12 @@ class BarraSuperiore(QFrame):
         self.b_riduci.clicked.connect(lambda: self.window().showMinimized())
         self.b_ingrandisci.clicked.connect(self.ingrandisci)
         self.b_chiudi.clicked.connect(lambda: self.window().close())
-        fin.addWidget(self.b_chiudi)
-        fin.addWidget(self.b_ingrandisci)
-        fin.addWidget(self.b_riduci)
+        riga_fin = QHBoxLayout()
+        riga_fin.setSpacing(2)
+        riga_fin.addWidget(self.b_riduci)
+        riga_fin.addWidget(self.b_ingrandisci)
+        riga_fin.addWidget(self.b_chiudi)
+        fin.addLayout(riga_fin)
         fin.addStretch()
         h.addSpacing(4)
         h.addLayout(fin)
@@ -743,18 +746,48 @@ class OspiteGioco(QWidget):
 
 class CorniceGioco(QWidget):
     """Il gioco al centro, con le proporzioni dei due schermi del DS, dentro una cornice che ricorda la console.
-    La finestra di melonDS sta nel riquadro nativo «schermo»; tutto il resto (sfondo, cornice, scritta) è disegnato qui."""
+    melonDS ha due finestre: lo schermo superiore va nel riquadro nativo «schermo», il touch in «schermo2».
+    Uno sopra l'altro o affiancati (superiore a sinistra) lo decide l'app, senza riavviare melonDS.
+    Tutto il resto (sfondo, cornice, spazio tra gli schermi) è disegnato qui."""
     ridimensionato = Signal()
     BORDO = 18              # spessore della cornice intorno agli schermi
     SOTTO = 0               # niente scritta sotto la cornice
 
-    def __init__(self, proporzione: float):
+    SPAZIO = 16             # spazio tra i due schermi, in pixel del DS (256x192 ciascuno)
+
+    def __init__(self, orizzontale: bool = False):
         super().__init__()
-        self.proporzione = proporzione            # larghezza / altezza degli schermi
+        self.orizzontale = orizzontale
         self.didascalia = ""
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.schermo = OspiteGioco(self)
+        self.schermo2 = OspiteGioco(self)
         self.schermo.ridimensionato.connect(self.ridimensionato)
+        self.schermo2.ridimensionato.connect(self.ridimensionato)
+
+    @property
+    def proporzione(self) -> float:
+        return (512 + self.SPAZIO) / 192 if self.orizzontale else 256 / (384 + self.SPAZIO)
+
+    def imposta_orizzontale(self, si: bool):
+        self.orizzontale = si
+        self._disponi()
+        self.update()
+
+    def aree_schermi(self):
+        """Rettangoli dei due schermi (superiore, touch) dentro l'area degli schermi."""
+        from PySide6.QtCore import QRect
+        a = self.area_schermo()
+        if self.orizzontale:
+            w = round(a.width() * 256 / (512 + self.SPAZIO))
+            return QRect(a.left(), a.top(), w, a.height()), QRect(a.right() - w + 1, a.top(), w, a.height())
+        h = round(a.height() * 192 / (384 + self.SPAZIO))
+        return QRect(a.left(), a.top(), a.width(), h), QRect(a.left(), a.bottom() - h + 1, a.width(), h)
+
+    def _disponi(self):
+        r1, r2 = self.aree_schermi()
+        self.schermo.setGeometry(r1)
+        self.schermo2.setGeometry(r2)
 
     def imposta_didascalia(self, testo: str):
         self.didascalia = testo
@@ -776,7 +809,7 @@ class CorniceGioco(QWidget):
 
     def resizeEvent(self, ev):
         super().resizeEvent(ev)
-        self.schermo.setGeometry(self.area_schermo())
+        self._disponi()
         self.ridimensionato.emit()
 
     def paintEvent(self, ev):
@@ -818,6 +851,8 @@ class CorniceGioco(QWidget):
         filo.setColorAt(1, QColor(139, 108, 255, 0))
         p.setPen(QPen(filo, 2))
         p.drawLine(QPointF(corpo.left() + 40, corpo.top() + 1), QPointF(corpo.right() - 40, corpo.top() + 1))
+        # spazio tra i due schermi (le finestre di melonDS sono due): come il vetro tra gli schermi del DS
+        p.fillRect(s, QColor("#050507"))
         # vetro intorno agli schermi
         p.setPen(QPen(QColor(0, 0, 0, 190), 3))
         p.setBrush(Qt.NoBrush)
