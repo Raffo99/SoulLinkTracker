@@ -1,3 +1,8 @@
+**6.0.1**
+- **Tastiera**: i tasti arrivano al gioco. melonDS sta dentro l'app e la tastiera a volte restava all'app; ora quando il gioco è selezionato (all'avvio, o dopo un clic sugli schermi o sulla cornice) l'app gira i tasti a melonDS. Un clic sul resto dell'app (Coppie, menu…) restituisce la tastiera all'app; nei campi di testo si scrive normalmente.
+- **Schermo centrato e grande quanto la cornice**: l'app misura dove sta davvero lo schermo dentro la finestra di melonDS (menu, bordi, scala dello schermo) e lo fa coincidere con l'apertura della cornice, invece di stimare l'altezza del menu.
+- **Volume dall'app**: nuovo pulsante 🔈 in basso con un cursore da 0 a 100%, che si può usare mentre giochi (agisce sul volume di melonDS nel mixer di Windows). Il volume parte dal **5%** e l'app se lo ricorda.
+
 **Versione 6: l'emulatore adesso è melonDS.**
 
 - **melonDS al posto di BizHawk.** La prima volta l'app scarica melonDS da sola (circa 20 MB, dalle release ufficiali su GitHub) e ne usa una copia sua, con le impostazioni giuste per il tracker. In *Impostazioni* non c'è più da indicare BizHawk.

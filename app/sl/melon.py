@@ -32,6 +32,9 @@ if WIN:
     user32.GetClientRect.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.RECT)]
     user32.MapVirtualKeyW.argtypes = [wintypes.UINT, wintypes.UINT]
     user32.GetDpiForWindow.argtypes = [wintypes.HWND]
+    user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
+    user32.SetFocus.argtypes = [wintypes.HWND]
+    user32.SetFocus.restype = wintypes.HWND
     WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
 
 URL_ULTIMA = "https://api.github.com/repos/melonDS-emu/melonDS/releases/latest"
@@ -186,7 +189,7 @@ def _poni(d, percorso, valore, solo_se_manca=False):
     d[ultimo] = valore
 
 
-def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: float) -> Path:
+def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: float, volume: int = 5) -> Path:
     """Scrive melonDS.toml nella cartella "portable" accanto a melonDS: tiene quello che hai cambiato in melonDS
     (tasti, audio, video…) e impone solo quello che serve al tracker."""
     port = Path(exe).parent / "portable"
@@ -216,6 +219,8 @@ def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: floa
         "Instance0.Window0.ScreenAspectBot": 0,
         "Instance0.Window0.Geometry": "",     # la posizione salvata da incastrata non ha senso da sola
         "Instance0.Keyboard.HK_FastForwardToggle": TASTO_F20,
+        # con il mixer di Windows il volume si regola dall'app mentre si gioca; senza, vale quello di partenza
+        "Instance0.Audio.Volume": 256 if volume_dal_mixer() else round(2.56 * volume),
     }
     for k, v in imposti.items():
         _poni(d, k, v)
@@ -224,6 +229,29 @@ def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: floa
     _poni(d, "Instance0.Keyboard.HK_FastForward", TASTO_TAB, solo_se_manca=True)
     f.write_text(_toml_scrivi(d), "utf-8")
     return f
+
+
+# ------------------------------------------------------------------ volume (mixer di Windows)
+def volume_dal_mixer() -> bool:
+    if not WIN:
+        return False
+    try:
+        import pycaw.pycaw  # noqa: F401
+        return True
+    except Exception:
+        return False
+
+
+def sessione_audio(pid: int):
+    """ISimpleAudioVolume della sessione audio del processo, o None."""
+    from pycaw.pycaw import AudioUtilities
+    for s in AudioUtilities.GetAllSessions():
+        p = getattr(s, "ProcessId", None)
+        if p is None and getattr(s, "Process", None) is not None:
+            p = s.Process.pid
+        if p == pid:
+            return s.SimpleAudioVolume
+    return None
 
 
 # ------------------------------------------------------------------ finestra
@@ -239,32 +267,47 @@ def figli(hwnd) -> list:
     return out
 
 
-def altezza_menu(hwnd) -> int:
-    """Altezza della barra dei menu di melonDS: lo schermo (OpenGL) è una finestra figlia, il menu è sopra."""
+def _rett(h):
+    r = wintypes.RECT()
+    user32.GetWindowRect(h, ctypes.byref(r))
+    return r.left, r.top, r.right, r.bottom
+
+
+def misura_scarti(hwnd):
+    """Quanto la finestra di melonDS sporge intorno al suo schermo (OpenGL, finestra figlia): sinistra, sopra
+    (il menu), destra, sotto. Si misura invece di indovinare: tiene conto di menu, bordi e scala dello schermo."""
     if not WIN or not hwnd:
-        return 0
+        return None
     migliore = None
     for h in figli(hwnd):
         if not user32.IsWindowVisible(h):
             continue
-        r = wintypes.RECT()
-        user32.GetClientRect(h, ctypes.byref(r))
-        if r.right - r.left < 64 or r.bottom - r.top < 64:
-            continue
-        p = wintypes.POINT(0, 0)
-        user32.MapWindowPoints(h, hwnd, ctypes.byref(p), 1)
-        if migliore is None or (r.right - r.left) * (r.bottom - r.top) > migliore[1]:
-            migliore = (p.y, (r.right - r.left) * (r.bottom - r.top))
-    if migliore is not None and 0 < migliore[0] < 120:
-        return migliore[0]
-    try:                                                          # schermo senza OpenGL: stima dalla scala
+        l, t, r, b = _rett(h)
+        area = (r - l) * (b - t)
+        if r - l >= 64 and b - t >= 64 and (migliore is None or area > migliore[0]):
+            migliore = (area, (l, t, r, b))
+    if migliore is None:
+        return None
+    wl, wt, wr, wb = _rett(hwnd)
+    l, t, r, b = migliore[1]
+    scarti = (l - wl, t - wt, wr - r, wb - b)
+    if all(0 <= x <= 200 for x in scarti):
+        return scarti
+    return None
+
+
+def scarti_stimati(hwnd):
+    """Senza schermo OpenGL: solo il menu, stimato dalla scala dello schermo."""
+    if not WIN:
+        return (0, 0, 0, 0)
+    try:
         dpi = user32.GetDpiForWindow(hwnd) or 96
     except Exception:
         dpi = 96
-    return round(26 * dpi / 96)
+    return (0, round(26 * dpi / 96), 0, 0)
 
 
-def incastra(hwnd, ospite_hwnd, w, h, menu):
+def incastra(hwnd, ospite_hwnd, w, h, scarti=(0, 0, 0, 0)):
     if not WIN:
         return
     st = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
@@ -272,12 +315,15 @@ def incastra(hwnd, ospite_hwnd, w, h, menu):
     st |= WS_CHILD
     user32.SetWindowLongPtrW(hwnd, GWL_STYLE, st)
     user32.SetParent(hwnd, ospite_hwnd)
-    user32.SetWindowPos(hwnd, 0, 0, -menu, w, h + menu, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW)
+    l, t, r, b = scarti
+    user32.SetWindowPos(hwnd, 0, -l, -t, w + l + r, h + t + b, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_SHOWWINDOW)
 
 
-def adatta(hwnd, w, h, menu):
+def adatta(hwnd, w, h, scarti=(0, 0, 0, 0)):
+    """La finestra di melonDS più grande del riquadro, spostata in modo che il solo schermo lo riempia esattamente."""
     if WIN and hwnd:
-        user32.SetWindowPos(hwnd, 0, 0, -menu, w, h + menu, SWP_NOZORDER | SWP_NOACTIVATE)
+        l, t, r, b = scarti
+        user32.SetWindowPos(hwnd, 0, -l, -t, w + l + r, h + t + b, SWP_NOZORDER | SWP_NOACTIVATE)
 
 
 def titolo(hwnd) -> str:
@@ -299,7 +345,10 @@ class MelonDS(QObject):
         self.proc = None
         self.hwnd = None
         self.rom = None
-        self.menu = 0                  # altezza della barra dei menu (tagliata via)
+        self.scarti = (0, 0, 0, 0)     # menu e bordi di melonDS intorno allo schermo (tagliati via)
+        self.volume = 5                # percentuale
+        self._vol_sessione = None
+        self._vol_messo = None
         self.mostra_menu = False
         self.avanti_veloce_avvio = 0.0  # FastForwardFPS con cui è partito melonDS
         self._veloce = False            # avanti veloce acceso dall'app
@@ -320,14 +369,15 @@ class MelonDS(QObject):
     def in_esecuzione(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def avvia(self, exe, rom: Path, salvataggi: Path, stati: Path, velocita: int) -> bool:
+    def avvia(self, exe, rom: Path, salvataggi: Path, stati: Path, velocita: int, volume: int = 5) -> bool:
         exe = Path(exe)
         if not exe.exists():
             self.errore.emit(f"Non trovo melonDS: {exe}")
             return False
         self.avanti_veloce_avvio = 60.0 * max(2, velocita / 100) if velocita > 100 else 60.0 * 3
         try:
-            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio)
+            self.volume = max(0, min(100, int(volume)))
+            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio, self.volume)
         except Exception as e:
             self.errore.emit(f"Configurazione di melonDS non scritta: {e}")
             return False
@@ -339,6 +389,8 @@ class MelonDS(QObject):
         self._firma = M.firma_rom(rom)
         self.hwnd = None
         self._veloce = False
+        self._vol_sessione, self._vol_messo = None, None
+        self.scarti = (0, 0, 0, 0)
         self._chiudi_memoria()
         self._cerca_dal = time.time()
         return True
@@ -397,6 +449,9 @@ class MelonDS(QObject):
             self._chiudi_memoria()
             self.terminato.emit(codice)
             return
+        self._giri = getattr(self, "_giri", 0) + 1
+        if self._giri % 7 == 0:                         # ogni 2 secondi circa: il volume nel mixer di Windows
+            self.applica_volume()
         if not WIN or self.hwnd is not None:
             return
         finestre = finestre_del_processo(self.proc.pid)
@@ -407,9 +462,61 @@ class MelonDS(QObject):
             self.hwnd = max(cand)[1]
             self.finestra_pronta.emit(self.hwnd)
 
-    def calcola_menu(self):
-        self.menu = 0 if self.mostra_menu else altezza_menu(self.hwnd)
-        return self.menu
+    def calcola_scarti(self) -> bool:
+        """Misura di nuovo menu e bordi. True se sono cambiati (la finestra va risistemata)."""
+        if self.mostra_menu:
+            nuovi = (0, 0, 0, 0)
+        else:
+            nuovi = misura_scarti(self.hwnd) or (self.scarti if any(self.scarti) else scarti_stimati(self.hwnd))
+        cambiati = nuovi != self.scarti
+        self.scarti = nuovi
+        return cambiati
+
+    # ---------------------------------------------------------------- tastiera
+    def dai_focus(self):
+        """Porta la tastiera a melonDS (finestra di un altro programma dentro la nostra)."""
+        if not (WIN and self.hwnd):
+            return
+        try:
+            pid = wintypes.DWORD()
+            tid = user32.GetWindowThreadProcessId(self.hwnd, ctypes.byref(pid))
+            mio = ctypes.windll.kernel32.GetCurrentThreadId()
+            user32.AttachThreadInput(mio, tid, True)
+            user32.SetFocus(self.hwnd)
+        except Exception:
+            pass
+
+    def invia_tasto(self, vk: int, scan: int, giu: bool):
+        """Manda un tasto a melonDS (quando la tastiera è rimasta all'app)."""
+        if not (WIN and self.hwnd and vk):
+            return
+        lp = 1 | ((scan & 0xFF) << 16) | ((1 << 24) if scan & 0x100 else 0)
+        if not giu:
+            lp |= (1 << 30) | (1 << 31)
+        user32.PostMessageW(self.hwnd, WM_KEYDOWN if giu else WM_KEYUP, vk, lp)
+
+    # ---------------------------------------------------------------- volume
+    def imposta_volume(self, perc: int):
+        self.volume = max(0, min(100, int(perc)))
+        self._vol_messo = None
+        self.applica_volume()
+
+    def applica_volume(self):
+        """Volume di melonDS nel mixer di Windows (si può cambiare mentre si gioca). La sessione audio di melonDS
+        compare solo quando parte il suono: si riprova finché non c'è."""
+        if not (WIN and self.proc and self.proc.poll() is None):
+            return
+        v = self.volume / 100
+        try:
+            if self._vol_sessione is None:
+                self._vol_sessione = sessione_audio(self.proc.pid)
+            if self._vol_sessione is None:
+                return
+            if self._vol_messo != self.volume or abs(self._vol_sessione.GetMasterVolume() - v) > 0.005:
+                self._vol_sessione.SetMasterVolume(v, None)
+                self._vol_messo = self.volume
+        except Exception:
+            self._vol_sessione = None
 
     def avanti_veloce(self, acceso: bool):
         """Accende o spegne l'avanti veloce di melonDS (tasto F20, che usa solo l'app)."""

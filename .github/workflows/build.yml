@@ -35,6 +35,8 @@ jobs:
           --add-data "app/risorse;risorse"
           --paths app
           --collect-submodules lupa
+          --collect-submodules pycaw
+          --hidden-import comtypes.stream
           app/main.py
 
       - uses: actions/upload-artifact@v4

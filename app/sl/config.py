@@ -47,6 +47,7 @@ PREDEFINITA = {
     "aggiorna_auto": True,           # all'avvio controlla se su GitHub c'è una versione nuova
     "salta_versione": "",
     "velocita": 100,                 # velocita' del gioco in percentuale
+    "volume": 5,                     # volume del gioco in percentuale
 }
 
 

@@ -27,6 +27,7 @@ Tenere tutto questo a mano tra quattro persone è un lavoro. L'app lo fa da sola
 - 🎲 **ROM randomizzate automatiche**: a ogni nuova run l'app genera la ROM con Universal Pokémon Randomizer ZX (stesse impostazioni per tutti) e la carica.
 - ⏩ **Si salta l'inizio**: ogni run riparte dal salvataggio fatto prima dello starter.
 - 💾 **Backup** del salvataggio ogni 10 minuti e a ogni chiusura, con il ripristino a un clic.
+- 🔈 **Volume e velocità dall'app**: cursore del volume (parte dal 5%) e avanti veloce ×2…×8, anche mentre giochi.
 
 **Il tracker**
 - 🔎 **Incontri e catture riconosciuti da soli**: luogo, primo incontro, cattura o fuga, clausole doppioni e shiny.

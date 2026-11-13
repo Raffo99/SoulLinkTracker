@@ -10,9 +10,10 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel, QListWidget, QListWidgetItem, QMainWindow,
-                               QMenu, QMessageBox, QPushButton, QSizePolicy, QSplitter, QStackedLayout, QTabWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QComboBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QListWidget, QListWidgetItem, QMainWindow, QMenu, QPlainTextEdit, QPushButton,
+                               QSizePolicy, QSlider, QSplitter, QStackedLayout, QTabWidget, QTextEdit, QVBoxLayout,
+                               QWidget, QWidgetAction)
 
 from . import VERSIONE
 from .config import Config, StatoLocale, cartella_app
@@ -265,7 +266,30 @@ class Finestra(QMainWindow):
             a.triggered.connect(lambda _=False, perc=perc: self._imposta_velocita(perc))
         self.m_vel = m_vel
         self.b_vel.setMenu(m_vel)
-        for b in (self.b_vel, self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_altro, self.b_imp):
+        self.b_vol = QPushButton("")
+        self.b_vol.setToolTip("Volume del gioco (si cambia anche mentre giochi)")
+        m_vol = QMenu(self)
+        riquadro = QWidget()
+        rv = QHBoxLayout(riquadro)
+        rv.setContentsMargins(14, 10, 14, 10)
+        rv.setSpacing(10)
+        self.s_vol = QSlider(Qt.Horizontal)
+        self.s_vol.setRange(0, 100)
+        self.s_vol.setFixedWidth(180)
+        self.s_vol.setValue(int(self.cfg.get("volume", 5)))
+        self.l_vol = QLabel("")
+        self.l_vol.setMinimumWidth(40)
+        rv.addWidget(QLabel("🔈"))
+        rv.addWidget(self.s_vol)
+        rv.addWidget(QLabel("🔊"))
+        rv.addWidget(self.l_vol)
+        wa = QWidgetAction(m_vol)
+        wa.setDefaultWidget(riquadro)
+        m_vol.addAction(wa)
+        self.b_vol.setMenu(m_vol)
+        self.s_vol.valueChanged.connect(self._imposta_volume)
+        self._mostra_volume()
+        for b in (self.b_vol, self.b_vel, self.b_nuova, self.b_riavvia, self.b_partenza, self.b_regole, self.b_altro, self.b_imp):
             hb.addWidget(b)
         v.addWidget(basso)
 
@@ -385,6 +409,8 @@ class Finestra(QMainWindow):
         self._t_backup.timeout.connect(self._backup_periodico)
         self._t_backup.start(30000)
         self.barra.cambia_partita.connect(self._cambia_partita)
+        self._gioco_selezionato = False
+        QApplication.instance().installEventFilter(self)          # tastiera al gioco anche quando ce l'ha l'app
         self.ospite.ridimensionato.connect(self._adatta)
         self._t_adatta = QTimer(self)
         self._t_adatta.timeout.connect(self._adatta)
@@ -509,7 +535,8 @@ class Finestra(QMainWindow):
             self._log(f"Script Lua non copiato: {e}", KO)
         self.sincro.imposta_run_rom(run_della_rom(rom) if self.cfg["randomizza"] else None)
         vel = int(self.cfg.get("velocita", 100) or 100)
-        if self.emu.avvia(exe, rom, self.run_mgr.cartella_saveram(), self.run_mgr.cartella_stati(), vel):
+        if self.emu.avvia(exe, rom, self.run_mgr.cartella_saveram(), self.run_mgr.cartella_stati(), vel,
+                          int(self.cfg.get("volume", 5))):
             self._log(f"Avvio melonDS con {rom.name}")
             self.segnaposto.setText("Avvio melonDS…")
             self.cornice.imposta_didascalia(f"melonDS  ·  run #{run}  ·  {rom.stem}")
@@ -609,19 +636,24 @@ class Finestra(QMainWindow):
     def _incastra(self, hwnd):
         self.pile.setCurrentIndex(1)
         w, h = self.ospite.dimensioni_fisiche()
-        MEL.incastra(hwnd, int(self.ospite.winId()), w, h, 0)
+        self.emu.calcola_scarti()
+        MEL.incastra(hwnd, int(self.ospite.winId()), w, h, self.emu.scarti)
         self.i_gioco.imposta(True, Path(self.emu.rom).stem if self.emu.rom else "")
         self._log("melonDS incastrato nella finestra")
-        # il menu di melonDS si taglia via quando lo schermo (OpenGL) è pronto e se ne conosce l'altezza
-        for ritardo in (400, 1500, 4000):
+        # menu e bordi di melonDS si tagliano via misurando dove sta il suo schermo (appena è pronto)
+        for ritardo in (200, 600, 1500, 4000):
             QTimer.singleShot(ritardo, self._misura_menu)
+        self._gioco_selezionato = True                 # si gioca subito, senza dover cliccare
+        QTimer.singleShot(700, self.emu.dai_focus)
         if int(self.cfg.get("velocita", 100) or 100) > 100:
             QTimer.singleShot(2500, lambda: self.emu.avanti_veloce(True))
 
     def _misura_menu(self):
         if self.emu.hwnd:
-            self.emu.calcola_menu()
-            self._adatta()
+            if self.emu.calcola_scarti():
+                fonte = "misurati" if MEL.misura_scarti(self.emu.hwnd) else "stimati"
+                self._log(f"melonDS: menu e bordi {fonte} (sinistra, sopra, destra, sotto) = {self.emu.scarti}", TENUE)
+            self._adatta(misura=False)
 
     def _mostra_menu_melon(self, si):
         self.emu.mostra_menu = si
@@ -630,9 +662,11 @@ class Finestra(QMainWindow):
             self.notifiche.mostra("Menu di melonDS visibile: Config → Input and hotkeys per i tasti. "
                                   "Toglilo da Altro quando hai finito.", TENUE, 10)
 
-    def _adatta(self):
+    def _adatta(self, misura=True):
         if self.emu.hwnd and self.pile.currentIndex() == 1:
-            MEL.adatta(self.emu.hwnd, *self.ospite.dimensioni_fisiche(), self.emu.menu)
+            if misura:
+                self.emu.calcola_scarti()
+            MEL.adatta(self.emu.hwnd, *self.ospite.dimensioni_fisiche(), self.emu.scarti)
 
     # ================================================================ script (thread del ponte!)
     def _risposta_script(self, dati: dict) -> str:
@@ -715,6 +749,22 @@ class Finestra(QMainWindow):
                          + (" cap" if reg.get("cap_bloccato") else ""))
         return "\n".join(righe) + "\n"
 
+    def _imposta_volume(self, v):
+        self.cfg["volume"] = int(v)
+        self.emu.imposta_volume(int(v))
+        self._mostra_volume()
+        QTimer.singleShot(0, self._salva_volume) if not getattr(self, "_vol_in_salvataggio", False) else None
+        self._vol_in_salvataggio = True
+
+    def _salva_volume(self):
+        QTimer.singleShot(800, lambda: (self.cfg.salva(), setattr(self, "_vol_in_salvataggio", False)))
+
+    def _mostra_volume(self):
+        v = int(self.cfg.get("volume", 5))
+        icona = "🔇" if v == 0 else "🔈" if v < 34 else "🔉" if v < 67 else "🔊"
+        self.b_vol.setText(f"{icona} {v}%")
+        self.l_vol.setText(f"<b>{v}%</b>")
+
     def _imposta_velocita(self, v):
         self.cfg["velocita"] = v
         self.cfg.salva()
@@ -777,6 +827,15 @@ class Finestra(QMainWindow):
             attivo = QApplication.applicationState() == Qt.ApplicationActive
         if attivo != self._in_primo_piano:
             self._in_primo_piano = attivo
+        if attivo and sys.platform == "win32" and self.emu.hwnd:
+            try:
+                import ctypes
+                if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8001:          # tasto sinistro premuto
+                    from PySide6.QtGui import QCursor
+                    if self.ospite.rect().contains(self.ospite.mapFromGlobal(QCursor.pos())):
+                        self._gioco_selezionato = True
+            except Exception:
+                pass
 
     def _mostra_lotta(self, det):
         in_lotta = bool(det)
@@ -1850,9 +1909,36 @@ class Finestra(QMainWindow):
         }
 
     def eventFilter(self, ogg, ev):
-        if ogg is self.destra and ev.type() == ev.Type.Resize:
+        t = ev.type()
+        if ogg is self.destra and t == ev.Type.Resize:
             self.notifiche.riposiziona()
+        elif t == ev.Type.MouseButtonPress and isinstance(ogg, QWidget) and ogg.window() is self and ogg.isWindow() is False:
+            # clic nell'app: il gioco ha la tastiera solo se il clic è sulla cornice del gioco
+            self._gioco_selezionato = self._dentro_gioco(ev.globalPosition().toPoint())
+            if self._gioco_selezionato:
+                self.emu.dai_focus()
+        elif t in (ev.Type.KeyPress, ev.Type.KeyRelease) and isinstance(ogg, QWidget) and self._tasti_al_gioco():
+            if not ev.isAutoRepeat():
+                self.emu.invia_tasto(ev.nativeVirtualKey(), ev.nativeScanCode(), t == ev.Type.KeyPress)
+            return True
+        elif t == ev.Type.ShortcutOverride and isinstance(ogg, QWidget) and self._tasti_al_gioco():
+            ev.accept()                                     # niente scorciatoie dell'app mentre giochi
+            return True
         return super().eventFilter(ogg, ev)
+
+    def _dentro_gioco(self, p) -> bool:
+        if self.pile.currentIndex() != 1 or not self.cornice.isVisible():
+            return False
+        return self.cornice.rect().contains(self.cornice.mapFromGlobal(p))
+
+    def _tasti_al_gioco(self) -> bool:
+        """I tasti premuti mentre l'app ha la tastiera vanno a melonDS se il gioco è «selezionato»."""
+        if not (getattr(self, "_gioco_selezionato", False) and self.emu.hwnd and self.emu.in_esecuzione):
+            return False
+        if QApplication.activeModalWidget() or QApplication.activePopupWidget() or QApplication.activeWindow() is not self:
+            return False
+        f = QApplication.focusWidget()
+        return not isinstance(f, (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QComboBox))
 
     def closeEvent(self, ev):
         if not self._chiusura_pronta and self.emu.in_esecuzione:
