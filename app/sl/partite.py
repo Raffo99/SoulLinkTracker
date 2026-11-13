@@ -57,7 +57,7 @@ class RigaPartita(QFrame):
         h.addWidget(self.avatar, 0, Qt.AlignVCenter)
         col = QVBoxLayout()
         col.setSpacing(3)
-        uso = f"&nbsp;&nbsp;<span style='color:{OK};font-size:8pt;font-weight:600'>● IN USO</span>" if attuale else ""
+        uso = f"&nbsp;&nbsp;<span style='color:{OK};font-size:8.5pt;font-weight:600'>● in uso</span>" if attuale else ""
         self.l_titolo = QLabel(f"<b style='font-size:11pt'>{codice}</b>{uso}")
         self.l_run = QLabel("")
         self.l_gioc = QLabel("")
@@ -187,8 +187,7 @@ class DialogoPartite(QDialog):
         t = QLabel("Quale partita vuoi giocare?")
         t.setObjectName("grande")
         tv.addWidget(t)
-        s = QLabel("Ogni partita ha il suo codice: chi usa lo stesso codice gioca nello stesso Soul Link. "
-                   "ROM e salvataggi di ogni partita restano separati.")
+        s = QLabel("Chi usa lo stesso codice gioca nello stesso Soul Link.")
         s.setWordWrap(True)
         s.setObjectName("tenue")
         tv.addWidget(s)
@@ -224,6 +223,17 @@ class DialogoPartite(QDialog):
         r.addStretch()
         v.addLayout(r)
 
+        # come vi collegate, detto qui dove si sceglie la partita (si cambia nelle impostazioni)
+        diretto = self.cfg.get("rete") != "supabase"
+        self.l_rete = QLabel(("<b>Collegamento diretto tra le app.</b> Manda il codice agli amici: non serve altro."
+                              if diretto else "<b>Collegamento con Supabase.</b> Gli amici devono avere lo stesso indirizzo e la stessa chiave.")
+                             + "  <a href='#' style='color:#b6a4ff'>Cambia</a>")
+        self.l_rete.setWordWrap(True)
+        self.l_rete.setStyleSheet("background: rgba(255,255,255,0.035); border: 1px solid rgba(255,255,255,0.06);"
+                                  " border-radius: 10px; padding: 9px 12px; color: #c3c6d4;")
+        self.l_rete.linkActivated.connect(lambda *_: self._cambia_rete())
+        v.addWidget(self.l_rete)
+
         sotto = QHBoxLayout()
         self.c_chiedi = QCheckBox("Chiedi ogni volta all'avvio")
         self.c_chiedi.setChecked(cfg.get("chiedi_partita", True) is not False)
@@ -241,6 +251,15 @@ class DialogoPartite(QDialog):
         sotto.addWidget(self.b_gioca)
         v.addLayout(sotto)
         self._riempi()
+
+    def _cambia_rete(self):
+        from .impostazioni import Impostazioni
+        if Impostazioni(self.cfg, self, pagina="rete").exec():
+            diretto = self.cfg.get("rete") != "supabase"
+            self.l_rete.setText(("<b>Collegamento diretto tra le app.</b> Manda il codice agli amici: non serve altro."
+                                 if diretto else "<b>Collegamento con Supabase.</b> Gli amici devono avere lo stesso indirizzo e la stessa chiave.")
+                                + "  <a href='#' style='color:#b6a4ff'>Cambia</a>")
+            self._riempi(seleziona=self._selezionato())
 
     # ---------- lista ----------
     def _riempi(self, seleziona=None):

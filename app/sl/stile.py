@@ -161,6 +161,18 @@ QPushButton#collegamento {{ background: transparent; border: none; color: #b6a4f
 QPushButton#collegamento:hover {{ color: #d4c8ff; text-decoration: underline; }}
 QPlainTextEdit#dettagli {{ font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.5pt; color: #b9bdd0; }}
 QPushButton#pericolo:hover {{ background: rgba(255,92,108,0.28); }}
+QFrame#fianco {{ background: #0b0c11; border-right: 1px solid {linea}; }}
+QFrame#piede {{ background: #12131b; border-top: 1px solid {linea}; }}
+QListWidget#nav {{ background: transparent; border: none; padding: 0; }}
+QListWidget#nav::item {{ padding: 9px 12px; border-radius: 9px; margin: 1px 0; color: #b4b8ca; font-weight: 500; }}
+QListWidget#nav::item:hover {{ background: rgba(255,255,255,0.05); }}
+QListWidget#nav::item:selected {{ background: rgba(139,108,255,0.20); color: #efeaff; font-weight: 600; }}
+QFrame#opzione {{ background: {carta}; border: 2px solid rgba(255,255,255,0.07); border-radius: 14px; }}
+QFrame#opzione:hover {{ border-color: rgba(255,255,255,0.18); }}
+QFrame#opzione:focus {{ border-color: rgba(139,108,255,0.6); }}
+QFrame#opzione[scelta="true"] {{ background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #20223a, stop:1 #181a28); }}
+QLabel#collegamentoStato {{ border-radius: 9px; padding: 3px 9px; font-size: 8.5pt; font-weight: 600;
+                            background: rgba(255,255,255,0.05); }}
 QPushButton#finestra, QPushButton#finestraChiudi {{ background: transparent; border: none; border-radius: 6px; padding: 0;
     color: #9a9fb5; font-size: 10pt; min-height: 0; }}
 QPushButton#finestra:hover {{ background: rgba(255,255,255,0.10); color: {TESTO}; }}

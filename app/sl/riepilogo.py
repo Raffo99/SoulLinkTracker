@@ -250,6 +250,7 @@ def _frazione(v):
 
 class BarraSuperiore(QFrame):
     cambia_partita = Signal()
+    apri_collegamento = Signal()
 
     def __init__(self):
         super().__init__()
@@ -274,6 +275,13 @@ class BarraSuperiore(QFrame):
         self.b_partita.setToolTip("Codice della partita in corso: clicca per giocarne un'altra o crearne una nuova")
         self.b_partita.clicked.connect(self.cambia_partita.emit)
         r0.addWidget(self.b_partita, 0, Qt.AlignVCenter)
+        # come sei collegato agli amici, in una parola: clic per le impostazioni del collegamento
+        self.b_rete = QPushButton("")
+        self.b_rete.setObjectName("partita")
+        self.b_rete.setCursor(Qt.PointingHandCursor)
+        self.b_rete.clicked.connect(self.apri_collegamento.emit)
+        self.b_rete.hide()
+        r0.addWidget(self.b_rete, 0, Qt.AlignVCenter)
         r0.addStretch()
         sx.addLayout(r0)
         riga = QHBoxLayout()
@@ -326,6 +334,26 @@ class BarraSuperiore(QFrame):
         self.tempo = self.tempo_vivo = None
         self.fermo = False
 
+    def imposta_collegamento(self, stato_rete, ok: bool, errore: str = ""):
+        """stato_rete: dizionario del collegamento diretto, None con Supabase."""
+        if stato_rete is None:
+            testo, col, tip = ("Supabase", OK, "Collegato al vostro Supabase") if ok else \
+                              ("Supabase non risponde", KO, errore or "Supabase non raggiungibile")
+        elif stato_rete["diretti"]:
+            n = stato_rete["diretti"]
+            testo, col = f"In diretta con {n}", OK
+            tip = f"Linea diretta con {n} " + ("amico" if n == 1 else "amici") + ", cifrata con il codice della partita"
+        elif stato_rete["altri"]:
+            testo, col, tip = "Tramite relay", WARN, "Gli amici ci sono, ma la linea diretta non è riuscita: i dati passano dai relay pubblici (cifrati)"
+        elif stato_rete["mqtt"] or stato_rete["nostr"]:
+            testo, col, tip = "In attesa degli amici", TENUE, "Sei raggiungibile: appena un amico apre l'app vi collegate"
+        else:
+            testo, col, tip = "Senza rete", KO, "Nessun relay risponde: la partita resta sul PC e si aggiorna appena torna internet"
+        self.b_rete.setText(f"●  {testo}")
+        self.b_rete.setStyleSheet(f"color: {col};")
+        self.b_rete.setToolTip(tip + ". Clic per cambiare collegamento.")
+        self.b_rete.show()
+
     def ingrandisci(self):
         w = self.window()
         w.showNormal() if w.isMaximized() else w.showMaximized()
@@ -349,6 +377,7 @@ class BarraSuperiore(QFrame):
         """Schermi piccoli: meno spazio per titolo e conteggi, barra più bassa."""
         self.l_titolo.setVisible(not stretta)
         self.l_conti.setVisible(not stretta)
+        self.b_rete.setVisible(not stretta and bool(self.b_rete.text()))
         self.l_logo.setVisible(not stretta)
         self.setFixedHeight(104 if bassa else 122)
         for c in self.carte:

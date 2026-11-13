@@ -1,3 +1,10 @@
+**6.3.0: impostazioni e collegamento rifatti**
+- **Scelta del collegamento**: due schede affiancate, «Diretto tra le app» e «Supabase», con pro e contro di ognuna e uno schema di come viaggiano i dati. I campi di Supabase compaiono solo se lo scegli. «Prova il collegamento» funziona anche per il diretto: dice quanti relay rispondono.
+- **Impostazioni a pagine**: a sinistra gli argomenti (Tu e la partita, Collegamento, Gioco, Salvataggi, Altro), a destra una pagina per ognuno, con una riga di spiegazione sotto ogni campo. Accanto al codice ci sono «Copia» e «Nuovo codice». Al primo avvio un pallino segna cosa manca.
+- **Stato del collegamento in alto**, accanto al codice della partita: «In diretta con 2», «Tramite relay», «In attesa degli amici», «Senza rete» o «Supabase». Un clic apre la pagina del collegamento.
+- **Scelta della partita**: una riga dice quale collegamento stai usando, con «Cambia».
+- **Mosse**: la scritta fisica / speciale / stato ora sta sotto il tipo della mossa.
+
 **6.2.1**
 - **Schermi affiancati senza riavvio**: melonDS ora apre due finestre (una per lo schermo superiore, una per il touch) e l'app le mette uno sopra l'altro o affiancate (superiore a sinistra, touch a destra). Il cambio da *Altro → Schermi affiancati* è immediato. Il gioco resta nella colonna di sinistra come in verticale; le schede restano a destra.
 - **Niente più "piccolo e grande"**: l'app non risistema più melonDS ogni secondo. Lo fa solo quando cambia lo spazio del gioco, e una misura nuova di menu e bordi vale solo se si ripete uguale.

@@ -418,6 +418,10 @@ class Finestra(QMainWindow):
         self._t_backup.timeout.connect(self._backup_periodico)
         self._t_backup.start(30000)
         self.barra.cambia_partita.connect(self._cambia_partita)
+        self.barra.apri_collegamento.connect(lambda: self._impostazioni("rete"))
+        self._t_rete = QTimer(self)
+        self._t_rete.timeout.connect(self._mostra_collegamento)
+        self._t_rete.start(2000)
         self._gioco_selezionato = False
         QApplication.instance().installEventFilter(self)          # tastiera al gioco anche quando ce l'ha l'app
         # niente controllo ogni secondo (faceva fare a melonDS piccolo-grande): si sistema quando cambia il riquadro
@@ -450,7 +454,15 @@ class Finestra(QMainWindow):
             return
         QTimer.singleShot(2500, self.assicura_gioco)
 
+    def _mostra_collegamento(self):
+        try:
+            self.barra.imposta_collegamento(self.sincro.stato_rete(), getattr(self, "_rete_ok", True),
+                                            getattr(self, "_ultimo_err", "") or "")
+        except Exception:
+            pass
+
     def _connessione(self, ok, err):
+        self._rete_ok = ok
         self.i_sito.imposta(ok, "" if ok else "errore")
         self.i_sito.setToolTip(err or "")
         if not ok and err and err != getattr(self, "_ultimo_err", None):
@@ -1350,9 +1362,9 @@ class Finestra(QMainWindow):
         if f:
             f()
 
-    def _impostazioni(self):
+    def _impostazioni(self, pagina=None):
         prima = self.cfg.get("codice")
-        if Impostazioni(self.cfg, self).exec():
+        if Impostazioni(self.cfg, self, pagina=pagina if isinstance(pagina, str) else None).exec():
             self._log("Impostazioni salvate")
             if self.cfg.get("codice") != prima and self.cfg.get("codice"):
                 nuovo = self.cfg["codice"]

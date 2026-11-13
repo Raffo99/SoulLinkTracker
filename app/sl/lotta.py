@@ -654,7 +654,20 @@ class CartaLotta(QFrame):
         cpp = KO if pp_ora == 0 else WARN if pp_max and pp_ora <= pp_max // 4 else TENUE
         # potenza grande, nel colore della categoria (fisica / speciale)
         pot = (f"<b style='color:{cc};font-size:16pt'>{mo['potenza']}</b>&nbsp;&nbsp;" if mo["potenza"] else "")
-        g.addWidget(QLabel(f"{pot}{pillola_tipo(mo['tipo'])} <b style='color:{cc};font-size:8.5pt'>{classe}</b>"), 1, 0)
+        # potenza a sinistra; accanto il tipo e, sotto il tipo, la categoria (fisica / speciale / stato)
+        riga_t = QHBoxLayout()
+        riga_t.setContentsMargins(0, 0, 0, 0)
+        riga_t.setSpacing(8)
+        if pot:
+            riga_t.addWidget(QLabel(f"<b style='color:{cc};font-size:16pt'>{mo['potenza']}</b>"), 0, Qt.AlignVCenter)
+        col_t = QVBoxLayout()
+        col_t.setContentsMargins(0, 0, 0, 0)
+        col_t.setSpacing(1)
+        col_t.addWidget(QLabel(pillola_tipo(mo["tipo"])))
+        col_t.addWidget(QLabel(f"<b style='color:{cc};font-size:8pt'>{classe}</b>"))
+        riga_t.addLayout(col_t)
+        riga_t.addStretch()
+        g.addLayout(riga_t, 1, 0)
         prec = mo.get("precisione")
         cprec = TESTO if not prec or prec >= 100 else WARN if prec >= 70 else KO
         testo_prec = f"{prec}%" if prec else ("—" if mo["classe"] == 0 else "sempre")   # 0 = non manca mai
