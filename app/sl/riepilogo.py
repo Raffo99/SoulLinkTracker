@@ -160,59 +160,75 @@ def stato_giocatore(x):
 
 
 class CartaGiocatore(QFrame):
+    """Un giocatore nella barra in alto: striscia del suo colore, nome e medaglie, cosa sta facendo, dov'è.
+    In basso una linea sottile dice quanto è vicino al level cap."""
+
     def __init__(self):
         super().__init__()
         self.setObjectName("giocatore")
         self.setMinimumWidth(140)
         self.setMaximumWidth(340)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        # avatar a sinistra accanto a nome e stato; sotto dov'è e livello / cap (i PS sono già nelle Coppie)
-        g = QGridLayout(self)
-        g.setContentsMargins(12, 9, 12, 9)
-        g.setHorizontalSpacing(10)
-        g.setVerticalSpacing(4)
-        self.avatar = Avatar(30)
-        g.addWidget(self.avatar, 0, 0, 2, 1, Qt.AlignVCenter)
+        self._colore, self._online, self._quota, self._sopra = ACC, False, 0.0, False
+        v = QVBoxLayout(self)
+        v.setContentsMargins(18, 9, 12, 11)
+        v.setSpacing(3)
         r1 = QHBoxLayout()
         r1.setSpacing(8)
-        self.l_nome = etichetta("")
-        self.l_nome.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        self.l_nome.setMinimumHeight(18)
+        self.l_nome = Elisa()
+        self.l_nome.setMinimumHeight(20)
         self.medaglie = Medaglie(7)
         r1.addWidget(self.l_nome, 1)
         r1.addWidget(self.medaglie, 0, Qt.AlignVCenter)
-        g.addLayout(r1, 0, 1)
-        r2 = QHBoxLayout()                                   # etichetta colorata + contro chi (con «…» se non ci sta)
-        r2.setSpacing(7)
-        self.l_stato = etichetta("")
-        self.l_stato.setMinimumHeight(19)
-        self.l_cosa = Elisa()
+        v.addLayout(r1)
+        self.l_cosa = Elisa()                                # cosa sta facendo (con «…» se non ci sta)
         self.l_cosa.setMinimumHeight(19)
-        r2.addWidget(self.l_stato, 0)
-        r2.addWidget(self.l_cosa, 1)
-        g.addLayout(r2, 1, 1)
-        r3 = QHBoxLayout()                                   # dov'è (con «…» se non ci sta) e a destra livello / cap
+        v.addWidget(self.l_cosa)
+        r3 = QHBoxLayout()                                   # dov'è e, a destra, livello / cap
         r3.setSpacing(8)
-        r3.setContentsMargins(0, 2, 0, 0)
         self.l_luogo = Elisa()
         self.l_luogo.setMinimumHeight(16)
         self.l_lv = etichetta("", "piccolo")
         r3.addWidget(self.l_luogo, 1, Qt.AlignVCenter)
         r3.addWidget(self.l_lv, 0, Qt.AlignVCenter)
-        g.addLayout(r3, 2, 0, 1, 2)
-        g.setColumnStretch(1, 1)
+        v.addLayout(r3)
+        self.avatar = None                                   # (non c'è più: il colore è nella striscia)
+
+    def paintEvent(self, ev):
+        super().paintEvent(ev)
+        from PySide6.QtCore import QRectF
+        from PySide6.QtGui import QPainter
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setPen(Qt.NoPen)
+        c = QColor(self._colore)
+        c.setAlpha(255 if self._online else 90)
+        p.setBrush(c)
+        p.drawRoundedRect(QRectF(7, 10, 4, self.height() - 20), 2, 2)          # striscia del giocatore
+        # quanto manca al level cap: linea sottile sul fondo
+        x0, x1, y = 18.0, self.width() - 12.0, self.height() - 6.0
+        p.setBrush(QColor(255, 255, 255, 18))
+        p.drawRoundedRect(QRectF(x0, y, x1 - x0, 2.5), 1.2, 1.2)
+        if self._quota > 0:
+            p.setBrush(QColor(KO if self._sopra else WARN if self._quota >= 1 else self._colore))
+            p.drawRoundedRect(QRectF(x0, y, (x1 - x0) * min(1.0, self._quota), 2.5), 1.2, 1.2)
+        p.end()
 
     def imposta(self, g, x, squadra, io=False, colore=ACC):
         online = bool(x.get("online"))
-        self.avatar.imposta(g, colore, online)
-        self.l_nome.setText(f"<b style='font-size:10.5pt;color:{TESTO if online else TENUE}'>{g}</b>")
-        self.l_nome.setToolTip("sei tu" if io else "")
+        self._colore, self._online = colore, online
+        self.l_nome.setText(g + ("  (tu)" if io else ""))
+        self.l_nome.setStyleSheet(f"font-size:10.5pt; font-weight:700; color:{TESTO if online else TENUE};")
         self.medaglie.imposta(x.get("medaglie") or 0)
         et, c, cosa, sotto = stato_giocatore(x)
-        self.l_stato.setText(pill(et, c))
-        self.l_cosa.setText(cosa)
-        self.l_cosa.setStyleSheet(f"color:{'#ff8a96' if et == 'BOSS' else TESTO if online else TENUE};"
-                                  f" font-weight:{700 if et in ('BOSS', 'ALLENATORE', 'SELVATICO') else 400};")
+        in_azione = et in ("BOSS", "ALLENATORE", "SELVATICO", "IN LOTTA")
+        if in_azione:
+            testo = {"BOSS": "Boss", "ALLENATORE": "Allenatore", "SELVATICO": "Selvatico", "IN LOTTA": "In lotta"}[et] + f": {cosa}"
+        else:
+            testo = cosa[:1].upper() + cosa[1:]              # dov'è, «Gioco chiuso», «Non connesso»…
+        self.l_cosa.setText(testo)
+        self.l_cosa.setStyleSheet(f"color:{c if (in_azione or not online) else TESTO}; font-size:9.5pt;"
+                                  f" font-weight:{700 if in_azione else 500};")
         self.l_luogo.setText(sotto)
         self.l_luogo.setStyleSheet(f"color:{'#aeb2c4' if online else TENUE}; font-size:8.5pt;")
         in_lotta = bool((x.get("attivita") or {}).get("lotta") and x.get("online") and x.get("emulatore"))
@@ -230,6 +246,9 @@ class CartaGiocatore(QFrame):
         self.l_lv.setText(f"Lv <b style='color:{KO if sopra else TESTO}'>{lv or '–'}</b>"
                           f"<span style='color:#5b5f73'>/</span><b style='color:{WARN}'>{cap}</b>")
         self.l_lv.setToolTip(f"livello più alto in squadra {lv or '–'} · level cap {cap}")
+        self._quota = (lv / cap) if isinstance(cap, int) and cap else 0.0
+        self._sopra = sopra
+        self.update()
         righe = [f"<b>{g}</b> · {x.get('medaglie') or 0} medaglie · level cap {cap} · {len(squadra)} in squadra"
                  + (f" · PS {ora}/{tot}" if tot else ""),
                  f"{et.capitalize()}: {cosa}" + (f" — {sotto}" if sotto else "")]

@@ -1,3 +1,7 @@
+**6.3.1**
+- **Due melonDS**: corrette due cause. L'app poteva far partire melonDS due volte se arrivava un altro avvio mentre era aperta una domanda (per esempio «Riprendere da dove avevi lasciato?»). E la finestra del touch, che è «di proprietà» della prima, poteva restare fuori dall'app: ora l'app la stacca dalla prima prima di incastrarla, e se arriva in ritardo la incastra appena compare.
+- **Giocatori in alto, rifatti**: una striscia con il colore del giocatore al posto del cerchio con l'iniziale, il nome intero con le medaglie, una riga che dice cosa sta facendo («Boss: Komor», «Selvatico: Pidove Lv.6», oppure dov'è) e sotto il luogo con livello e cap. Una linea sottile sul fondo mostra quanto manca al level cap (gialla al cap, rossa sopra).
+
 **6.3.0: impostazioni e collegamento rifatti**
 - **Scelta del collegamento**: due schede affiancate, «Diretto tra le app» e «Supabase», con pro e contro di ognuna e uno schema di come viaggiano i dati. I campi di Supabase compaiono solo se lo scegli. «Prova il collegamento» funziona anche per il diretto: dice quanti relay rispondono.
 - **Impostazioni a pagine**: a sinistra gli argomenti (Tu e la partita, Collegamento, Gioco, Salvataggi, Altro), a destra una pagina per ognuno, con una riga di spiegazione sotto ogni campo. Accanto al codice ci sono «Copia» e «Nuovo codice». Al primo avvio un pallino segna cosa manca.

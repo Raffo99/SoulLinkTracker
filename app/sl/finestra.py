@@ -364,6 +364,7 @@ class Finestra(QMainWindow):
         self.a_console.toggled.connect(self._mostra_menu_melon)
         self.b_imp.clicked.connect(self._impostazioni)
         self.emu.finestra_pronta.connect(self._incastra)
+        self.emu.finestra2_pronta.connect(self._incastra2)
         self.emu.terminato.connect(self._emu_terminato)
         self.emu.errore.connect(lambda m: self._log(m, KO))
         self.ponte.collegato.connect(self._script_collegato)
@@ -533,6 +534,17 @@ class Finestra(QMainWindow):
         self.assicura_gioco()
 
     def _avvia(self, rom: Path, run: int):
+        # mai due avvii insieme: mentre è aperta una domanda (per esempio «Riprendere da dove avevi lasciato?»)
+        # un altro avvio in arrivo faceva partire un secondo melonDS
+        if getattr(self, "_avvio_in_corso", False) or self.emu.in_esecuzione:
+            return
+        self._avvio_in_corso = True
+        try:
+            self._avvia_davvero(rom, run)
+        finally:
+            self._avvio_in_corso = False
+
+    def _avvia_davvero(self, rom: Path, run: int):
         if not rom.exists():
             self.segnaposto.setText(f"Non trovo la ROM:\n{rom}")
             return
@@ -675,7 +687,7 @@ class Finestra(QMainWindow):
         if self.emu.hwnd2:
             MEL.incastra(self.emu.hwnd2, int(self.ospite2.winId()), *self.ospite2.dimensioni_fisiche(), self.emu.scarti2)
         else:
-            self._log("melonDS: la seconda finestra (schermo touch) non è comparsa", WARN)
+            self._log("melonDS: aspetto la seconda finestra (schermo touch)", TENUE, stato=False)
         self.i_gioco.imposta(True, Path(self.emu.rom).stem if self.emu.rom else "")
         self._log("melonDS incastrato nella finestra")
         # menu e bordi di melonDS si tagliano via misurando dove sta il suo schermo (appena è pronto)
@@ -701,6 +713,14 @@ class Finestra(QMainWindow):
         self.cfg["schermi_orizzontali"] = bool(si)
         self.cfg.salva()
         self._disposizione_schermi(bool(si))
+
+    def _incastra2(self, hwnd2):
+        """La finestra del touch è arrivata dopo la prima: si incastra appena c'è."""
+        if self.emu.hwnd and self.pile.currentIndex() == 1:
+            self.emu.calcola_scarti()
+            MEL.incastra(hwnd2, int(self.ospite2.winId()), *self.ospite2.dimensioni_fisiche(), self.emu.scarti2)
+            self._log("melonDS: schermo touch incastrato", TENUE, stato=False)
+            QTimer.singleShot(600, self._misura_menu)
 
     def _riprendi_stato(self):
         if self.emu.da_caricare and self.emu.hwnd:

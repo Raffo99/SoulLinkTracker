@@ -40,6 +40,7 @@ if WIN:
     user32.GetWindow.argtypes = [wintypes.HWND, wintypes.UINT]
     user32.GetWindow.restype = wintypes.HWND
     GW_OWNER = 4
+    GWLP_HWNDPARENT = -8
     user32.GetKeyboardState.argtypes = [ctypes.c_void_p]
     user32.SetKeyboardState.argtypes = [ctypes.c_void_p]
     WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
@@ -337,6 +338,9 @@ def incastra(hwnd, ospite_hwnd, w, h, scarti=(0, 0, 0, 0)):
     st = user32.GetWindowLongPtrW(hwnd, GWL_STYLE)
     st &= ~(WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_POPUP)
     st |= WS_CHILD
+    # la seconda finestra di melonDS è "di proprietà" della prima: una finestra figlia non può avere un
+    # proprietario, quindi lo si toglie prima (altrimenti resta fuori, come un secondo emulatore)
+    user32.SetWindowLongPtrW(hwnd, GWLP_HWNDPARENT, 0)
     user32.SetWindowLongPtrW(hwnd, GWL_STYLE, st)
     user32.SetParent(hwnd, ospite_hwnd)
     l, t, r, b = scarti
@@ -360,6 +364,7 @@ def titolo(hwnd) -> str:
 
 # ------------------------------------------------------------------ emulatore
 class MelonDS(QObject):
+    finestra2_pronta = Signal(int)     # hwnd della seconda finestra (schermo touch), se arriva dopo la prima
     finestra_pronta = Signal(int)      # hwnd della finestra principale di melonDS (schermo superiore)
     terminato = Signal(int)            # codice di uscita
     errore = Signal(str)
@@ -493,9 +498,16 @@ class MelonDS(QObject):
         self._giri = getattr(self, "_giri", 0) + 1
         if self._giri % 7 == 0:                         # ogni 2 secondi circa: il volume nel mixer di Windows
             self.applica_volume()
-        if not WIN or self.hwnd is not None:
+        if not WIN or (self.hwnd is not None and self.hwnd2 is not None):
             return
         finestre = finestre_del_processo(self.proc.pid)
+        if self.hwnd is not None:
+            # la prima è già incastrata (non è più tra le finestre libere): quella che resta è il touch
+            libere = [h for h, t, a in finestre if h != self.hwnd and ("melonDS" in t or a > 40000)]
+            if libere:
+                self.hwnd2 = libere[0]
+                self.finestra2_pronta.emit(self.hwnd2)
+            return
         cand = [h for h, t, a in finestre if "melonDS" in t]
         if not cand and time.time() - self._cerca_dal > 8:
             cand = [h for h, t, a in finestre if a > 40000]
@@ -513,7 +525,9 @@ class MelonDS(QObject):
             seconde = [h for h in cand if user32.GetWindow(h, GW_OWNER)]
         if not principali:
             return
-        if not seconde and time.time() - self._cerca_dal < 8:
+        if not seconde and len(principali) > 1:           # due finestre "alla pari": la prima creata è la principale
+            principali, seconde = principali[-1:], principali[:1]
+        if not seconde and time.time() - self._cerca_dal < 4:
             return                                        # la seconda finestra arriva un attimo dopo
         self.hwnd = principali[0]
         self.hwnd2 = seconde[0] if seconde else None
