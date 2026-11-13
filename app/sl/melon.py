@@ -35,14 +35,24 @@ if WIN:
     user32.AttachThreadInput.argtypes = [wintypes.DWORD, wintypes.DWORD, wintypes.BOOL]
     user32.SetFocus.argtypes = [wintypes.HWND]
     user32.SetFocus.restype = wintypes.HWND
+    user32.GetFocus.restype = wintypes.HWND
+    user32.IsChild.argtypes = [wintypes.HWND, wintypes.HWND]
+    user32.GetKeyboardState.argtypes = [ctypes.c_void_p]
+    user32.SetKeyboardState.argtypes = [ctypes.c_void_p]
     WM_KEYDOWN, WM_KEYUP = 0x0100, 0x0101
+    VK_SHIFT, VK_LSHIFT, VK_F1 = 0x10, 0xA0, 0x70
 
 URL_ULTIMA = "https://api.github.com/repos/melonDS-emu/melonDS/releases/latest"
 URL_RISERVA = "https://github.com/melonDS-emu/melonDS/releases/download/1.1/melonDS-1.1-windows-x86_64.zip"
 
 # disposizione dei due schermi: uno sopra l'altro, con uno spazio come tra i due schermi del DS
 SPAZIO_SCHERMI = 16
-PROPORZIONE = 256 / (384 + SPAZIO_SCHERMI)          # larghezza / altezza
+PROPORZIONE = 256 / (384 + SPAZIO_SCHERMI)          # larghezza / altezza, schermi uno sopra l'altro
+PROPORZIONE_ORIZZONTALE = (512 + SPAZIO_SCHERMI) / 192   # schermi affiancati
+
+
+def proporzione(orizzontale: bool) -> float:
+    return PROPORZIONE_ORIZZONTALE if orizzontale else PROPORZIONE
 
 # tasti di Qt (melonDS salva i codici dei tasti di Qt)
 K = {"A": 0x58, "B": 0x5A, "X": 0x53, "Y": 0x41, "L": 0x51, "R": 0x57, "Start": 0x01000004, "Select": 0x01000003,
@@ -50,6 +60,7 @@ K = {"A": 0x58, "B": 0x5A, "X": 0x53, "Y": 0x41, "L": 0x51, "R": 0x57, "Start": 
 TASTO_TAB = 0x01000001
 TASTO_F20 = 0x01000043                # usato solo dall'app per accendere/spegnere l'avanti veloce
 VK_F20 = 0x83
+VK_F7 = 0x76
 TASTI_PREDEFINITI = "X = A · Z = B · S = X · A = Y · Q = L · W = R · Invio = Start · Backspace = Select · frecce"
 
 
@@ -189,7 +200,8 @@ def _poni(d, percorso, valore, solo_se_manca=False):
     d[ultimo] = valore
 
 
-def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: float, volume: int = 5) -> Path:
+def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: float, volume: int = 5,
+                   orizzontale: bool = False) -> Path:
     """Scrive melonDS.toml nella cartella "portable" accanto a melonDS: tiene quello che hai cambiato in melonDS
     (tasti, audio, video…) e impone solo quello che serve al tracker."""
     port = Path(exe).parent / "portable"
@@ -209,10 +221,10 @@ def prepara_config(exe: Path, salvataggi: Path, stati: Path, avanti_veloce: floa
         "Screen.UseGL": True,                # schermo in una finestra sua: serve per tagliare via il menu
         "Instance0.SaveFilePath": str(salvataggi),
         "Instance0.SavestatePath": str(stati),
-        "Instance0.Window0.ScreenLayout": 0,
+        "Instance0.Window0.ScreenLayout": 2 if orizzontale else 0,     # 2 = affiancati, 0 = uno sopra l'altro
         "Instance0.Window0.ScreenRotation": 0,
         "Instance0.Window0.ScreenSizing": 0,
-        "Instance0.Window0.ScreenSwap": False,
+        "Instance0.Window0.ScreenSwap": False,          # superiore sopra (o a sinistra), touch sotto (o a destra)
         "Instance0.Window0.ScreenGap": SPAZIO_SCHERMI,
         "Instance0.Window0.IntegerScaling": False,
         "Instance0.Window0.ScreenAspectTop": 0,
@@ -349,6 +361,8 @@ class MelonDS(QObject):
         self.volume = 5                # percentuale
         self._vol_sessione = None
         self._vol_messo = None
+        self.stati = None              # cartella degli stati salvati di melonDS
+        self.da_caricare = None        # stato da riprendere appena parte il gioco
         self.mostra_menu = False
         self.avanti_veloce_avvio = 0.0  # FastForwardFPS con cui è partito melonDS
         self._veloce = False            # avanti veloce acceso dall'app
@@ -369,7 +383,8 @@ class MelonDS(QObject):
     def in_esecuzione(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def avvia(self, exe, rom: Path, salvataggi: Path, stati: Path, velocita: int, volume: int = 5) -> bool:
+    def avvia(self, exe, rom: Path, salvataggi: Path, stati: Path, velocita: int, volume: int = 5,
+              orizzontale: bool = False) -> bool:
         exe = Path(exe)
         if not exe.exists():
             self.errore.emit(f"Non trovo melonDS: {exe}")
@@ -377,15 +392,27 @@ class MelonDS(QObject):
         self.avanti_veloce_avvio = 60.0 * max(2, velocita / 100) if velocita > 100 else 60.0 * 3
         try:
             self.volume = max(0, min(100, int(volume)))
-            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio, self.volume)
+            prepara_config(exe, salvataggi, stati, self.avanti_veloce_avvio, self.volume, orizzontale)
         except Exception as e:
             self.errore.emit(f"Configurazione di melonDS non scritta: {e}")
             return False
         flags = 0
         if WIN:
             flags = subprocess.CREATE_NO_WINDOW
+        # slot 7: lo usa l'app per riprendere un backup. melonDS abilita "carica slot N" solo se il file c'è già
+        # quando parte il gioco: c'è sempre (al limite vuoto), e prima di caricare l'app ci copia il backup.
+        try:
+            slot7 = Path(stati) / f"{Path(rom).stem}.ml7"
+            if self.da_caricare and Path(self.da_caricare).exists():
+                import shutil
+                shutil.copyfile(self.da_caricare, slot7)
+            elif not slot7.exists():
+                slot7.write_bytes(b"")
+        except OSError:
+            pass
         self.proc = subprocess.Popen([str(exe), str(rom)], cwd=str(exe.parent), creationflags=flags)
         self.rom = Path(rom)
+        self.stati = Path(stati)
         self._firma = M.firma_rom(rom)
         self.hwnd = None
         self._veloce = False
@@ -486,14 +513,104 @@ class MelonDS(QObject):
         except Exception:
             pass
 
+    def ha_focus(self) -> bool:
+        """La tastiera (del nostro gruppo di finestre) è su melonDS o su una sua finestra figlia?"""
+        if not (WIN and self.hwnd):
+            return False
+        try:
+            f = user32.GetFocus()
+            return bool(f) and (int(f) == int(self.hwnd) or bool(user32.IsChild(self.hwnd, f)))
+        except Exception:
+            return False
+
     def invia_tasto(self, vk: int, scan: int, giu: bool):
         """Manda un tasto a melonDS (quando la tastiera è rimasta all'app)."""
         if not (WIN and self.hwnd and vk):
             return
-        lp = 1 | ((scan & 0xFF) << 16) | ((1 << 24) if scan & 0x100 else 0)
+        # frecce, Ins/Canc, Home/Fine, Pag su/giù sono tasti "estesi": senza quel bit Qt in melonDS li legge come
+        # tasti del tastierino numerico e non corrispondono più ai tasti scelti (le frecce non muovevano)
+        estesi = {0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27, 0x28, 0x2D, 0x2E, 0x6F, 0x90, 0xA3, 0xA5, 0x5B, 0x5C}
+        sc = scan & 0xFF or user32.MapVirtualKeyW(vk, 0)
+        lp = 1 | (sc << 16) | ((1 << 24) if (scan & 0x100 or vk in estesi) else 0)
         if not giu:
             lp |= (1 << 30) | (1 << 31)
         user32.PostMessageW(self.hwnd, WM_KEYDOWN if giu else WM_KEYUP, vk, lp)
+
+    # ---------------------------------------------------------------- stati salvati
+    def file_stato(self, slot: int) -> Path | None:
+        if not (self.stati and self.rom):
+            return None
+        return self.stati / f"{self.rom.stem}.ml{slot}"
+
+    def premi(self, vk: int, maiusc: bool = False) -> bool:
+        """Preme un tasto in melonDS come se fosse la tastiera (serve per le scorciatoie degli stati salvati).
+        Maiusc: si segna premuto nello stato della tastiera condiviso con melonDS per un attimo."""
+        if not (WIN and self.hwnd):
+            return False
+        from PySide6.QtCore import QTimer
+        hwnd = self.hwnd
+        self.dai_focus()
+        prima = None
+        if maiusc:
+            buf = (ctypes.c_ubyte * 256)()
+            user32.GetKeyboardState(buf)
+            prima = bytes(buf)
+            buf[VK_SHIFT] = buf[VK_LSHIFT] = 0x80
+            user32.SetKeyboardState(buf)
+        scan = user32.MapVirtualKeyW(vk, 0)
+        user32.PostMessageW(hwnd, WM_KEYDOWN, vk, 1 | (scan << 16))
+
+        def su():
+            user32.PostMessageW(hwnd, WM_KEYUP, vk, 1 | (scan << 16) | (0xC0 << 24))
+            if prima is not None:
+                ripristino = (ctypes.c_ubyte * 256)(*prima)
+                user32.SetKeyboardState(ripristino)
+        QTimer.singleShot(150, su)
+        return True
+
+    def salva_stato(self, fatto, slot: int = 8):
+        """Stato salvato del momento (Maiusc+F8 in melonDS). fatto(percorso) quando il file è scritto, fatto(None) se no."""
+        from PySide6.QtCore import QTimer
+        f = self.file_stato(slot)
+        if f is None:
+            fatto(None)
+            return
+        try:
+            prima = f.stat().st_mtime if f.exists() else 0
+        except OSError:
+            prima = 0
+        if not self.premi(VK_F1 + slot - 1, maiusc=True):
+            fatto(None)
+            return
+        t0 = time.time()
+        ultima = {"dim": -1}
+
+        def controlla():
+            try:
+                nuovo = f.exists() and f.stat().st_mtime > prima and f.stat().st_size > 0
+                dim = f.stat().st_size if nuovo else -1
+            except OSError:
+                nuovo, dim = False, -1
+            if nuovo and dim == ultima["dim"]:              # finito di scrivere
+                fatto(f)
+            elif time.time() - t0 > 6:
+                fatto(None)
+            else:
+                ultima["dim"] = dim
+                QTimer.singleShot(250, controlla)
+        QTimer.singleShot(400, controlla)
+
+    def carica_stato(self, file, slot: int = 7) -> bool:
+        """Riprende da uno stato salvato: lo copia nello slot 7 e preme F7 in melonDS."""
+        dest = self.file_stato(slot)
+        if dest is None or not Path(file).exists():
+            return False
+        try:
+            import shutil
+            shutil.copyfile(file, dest)
+        except OSError:
+            return False
+        return self.premi(VK_F1 + slot - 1)
 
     # ---------------------------------------------------------------- volume
     def imposta_volume(self, perc: int):

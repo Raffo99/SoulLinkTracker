@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel, 
                                QMessageBox, QPushButton, QVBoxLayout, QWidget)
 
 from . import dialoghi
-from .archivio import Archivio, ErroreArchivio
+from .archivio import ErroreArchivio, riassunto as riassunto_partita
 from .riepilogo import Avatar, logo
 from .stile import ACC, COLORI_GIOCATORI, KO, OK, ORO, SPENTO, TENUE, TESTO, WARN, alfa, colori_giocatori
 
@@ -19,7 +19,9 @@ PAROLE = ["fuoco", "acqua", "erba", "tuono", "luna", "sole", "vento", "roccia", 
 
 def codice_nuovo() -> str:
     """Codice leggibile ma difficile da indovinare (fa anche da password della partita)."""
-    return f"{secrets.choice(PAROLE)}-{secrets.choice(PAROLE)}-{secrets.randbelow(9000) + 1000}"
+    # il codice è anche la chiave che cifra la partita sui relay pubblici: abbastanza lungo da non poterlo indovinare
+    coda = "".join(secrets.choice("abcdefghjkmnpqrstuvwxyz23456789") for _ in range(6))
+    return f"{secrets.choice(PAROLE)}-{secrets.choice(PAROLE)}-{secrets.randbelow(9000) + 1000}-{coda}"
 
 
 def tempo_fa(t) -> str:
@@ -266,11 +268,9 @@ class DialogoPartite(QDialog):
         self._aggiorna_pulsanti()
 
     def _carica(self, codice):
-        url, chiave = self.cfg.get("supabase_url"), self.cfg.get("supabase_chiave")
-
         def lavoro():
             try:
-                r = Archivio(url, chiave, codice).riassunto()
+                r = riassunto_partita(self.cfg, codice)
                 self._ponte.pronto.emit(codice, ("ok", r))
             except ErroreArchivio as e:
                 self._ponte.pronto.emit(codice, ("errore", str(e)))
@@ -308,7 +308,7 @@ class DialogoPartite(QDialog):
         c = d.codice
         if not nuova:
             try:
-                r = Archivio(self.cfg.get("supabase_url"), self.cfg.get("supabase_chiave"), c).riassunto()
+                r = riassunto_partita(self.cfg, c)
             except ErroreArchivio as e:
                 dialoghi.avviso(self, "Non riesco a controllare il codice", str(e), "errore")
                 return

@@ -368,6 +368,26 @@ class CartaLotta(QFrame):
         return i, nemici[i]
 
     def _disegna(self):
+        """Ridisegna solo se cambia qualcosa di visibile, e tutto in un colpo (niente sfarfallio)."""
+        import json as _json
+        try:
+            firma = _json.dumps([self.det, [(p.get("pid"), p.get("ps"), p.get("livello"), p.get("mosse"), p.get("pp"),
+                                             p.get("stat"), p.get("esperienza"), p.get("stato_alt")) for p in self.squadra],
+                                 self.sel_mio, self.sel_nemico, self._idx_nem, self._ko_da is not None,
+                                 self._ko_da is not None and __import__("time").time() - self._ko_da >= 4, len(self.impara)],
+                                sort_keys=True, default=str)
+        except Exception:
+            firma = None
+        if firma is not None and firma == getattr(self, "_firma", None):
+            return
+        self._firma = firma
+        self.setUpdatesEnabled(False)
+        try:
+            self._costruisci()
+        finally:
+            self.setUpdatesEnabled(True)
+
+    def _costruisci(self):
         self._pulisci()
         det = self.det or {}
         nemici = det.get("nemici") or []

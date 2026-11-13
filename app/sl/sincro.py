@@ -1,6 +1,7 @@
-"""Sincronizzazione della partita tra i due giocatori, tutta in sottofondo.
+"""Sincronizzazione della partita tra i giocatori, tutta in sottofondo.
 
-Le regole del Soul Link le applica l'app stessa (sl.logica) sullo stato condiviso in Supabase.
+Le regole del Soul Link le applica l'app stessa (sl.logica) sullo stato condiviso: collegamento diretto tra le app
+(archivio_p2p, predefinito) oppure Supabase (archivio).
 - gli aggiornamenti dello script vengono uniti e applicati (scrivendo solo se cambia davvero qualcosa)
 - ogni 2 secondi si controlla il numero di versione: si riscarica la partita solo se l'altro l'ha modificata
 - la presenza (online, zona, diagnostica) va in una tabella a parte ogni 10 secondi
@@ -14,7 +15,7 @@ import time
 from PySide6.QtCore import QObject, Signal
 
 from . import logica as L
-from .archivio import Archivio, ErroreArchivio
+from .archivio import ErroreArchivio, nuovo_archivio
 
 
 def unisci(a: dict, b: dict) -> dict:
@@ -95,7 +96,18 @@ class Sincro(QObject):
         threading.Thread(target=self._ciclo_osserva, daemon=True).start()
 
     def _nuovo_archivio(self):
-        return Archivio(self.cfg.get("supabase_url"), self.cfg.get("supabase_chiave"), self.cfg.get("codice"))
+        vecchio = getattr(self, "archivio", None)
+        if vecchio is not None:
+            try:
+                vecchio.chiudi()
+            except Exception:
+                pass
+        return nuovo_archivio(self.cfg)
+
+    def stato_rete(self) -> dict | None:
+        """Collegamento diretto: quanti altri sono collegati e come (None con Supabase)."""
+        f = getattr(self.archivio, "stato_rete", None)
+        return f() if f else None
 
     def riconfigura(self):
         with self._lock:
@@ -165,6 +177,10 @@ class Sincro(QObject):
     def ferma(self):
         self._fermo = True
         self._sveglia.set()
+        try:
+            self.archivio.chiudi()
+        except Exception:
+            pass
 
     # ---------- interni ----------
     def _crea(self):

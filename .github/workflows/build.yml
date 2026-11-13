@@ -37,7 +37,19 @@ jobs:
           --collect-submodules lupa
           --collect-submodules pycaw
           --hidden-import comtypes.stream
+          --collect-submodules aiortc
+          --collect-submodules aioice
+          --collect-submodules websockets
+          --collect-submodules paho
+          --collect-submodules sl
           app/main.py
+
+      - name: Controlla che l'exe contenga tutto
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\SoulLinkTracker.exe -ArgumentList "--prova-moduli" -Wait -PassThru
+          Get-Content prova_moduli.txt
+          if ($p.ExitCode -ne 0) { exit 1 }
 
       - uses: actions/upload-artifact@v4
         with:

@@ -25,6 +25,7 @@ def cartella_documenti() -> Path:
 
 PREDEFINITA = {
     "giocatore": "",
+    "rete": "p2p",                   # "p2p" = collegamento diretto tra le app, "supabase" = database Supabase
     "supabase_url": "",
     "supabase_chiave": "",
     "codice": "",
@@ -48,6 +49,7 @@ PREDEFINITA = {
     "salta_versione": "",
     "velocita": 100,                 # velocita' del gioco in percentuale
     "volume": 5,                     # volume del gioco in percentuale
+    "schermi_orizzontali": False,    # schermi del DS affiancati invece che uno sopra l'altro
 }
 
 
@@ -57,7 +59,10 @@ class Config(dict):
         self.file = cartella_app() / "config.json"
         if self.file.exists():
             try:
-                self.update(json.loads(self.file.read_text("utf-8")))
+                letti = json.loads(self.file.read_text("utf-8"))
+                if "rete" not in letti and (letti.get("supabase_url") or "").strip():
+                    letti["rete"] = "supabase"           # chi usava già Supabase continua così finché non cambia
+                self.update(letti)
             except Exception:
                 pass
         self["randomizza"] = True          # la ROM si genera sempre dal randomizer
@@ -78,10 +83,11 @@ class Config(dict):
         m = []
         if not self.get("giocatore"):
             m.append("nome giocatore")
-        if not (self.get("supabase_url") or "").strip():
-            m.append("indirizzo Supabase")
-        if not (self.get("supabase_chiave") or "").strip():
-            m.append("chiave Supabase")
+        if self.get("rete") == "supabase":
+            if not (self.get("supabase_url") or "").strip():
+                m.append("indirizzo Supabase")
+            if not (self.get("supabase_chiave") or "").strip():
+                m.append("chiave Supabase")
         if not self.get("codice"):
             m.append("codice della partita")
         for k, n in (("jar", "randomizer"), ("impostazioni", "impostazioni .rnqs"), ("rom_originale", "la tua ROM")):

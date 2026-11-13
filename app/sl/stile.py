@@ -161,6 +161,10 @@ QPushButton#collegamento {{ background: transparent; border: none; color: #b6a4f
 QPushButton#collegamento:hover {{ color: #d4c8ff; text-decoration: underline; }}
 QPlainTextEdit#dettagli {{ font-family: "Cascadia Mono", Consolas, monospace; font-size: 8.5pt; color: #b9bdd0; }}
 QPushButton#pericolo:hover {{ background: rgba(255,92,108,0.28); }}
+QPushButton#finestra, QPushButton#finestraChiudi {{ background: transparent; border: none; border-radius: 6px; padding: 0;
+    color: #9a9fb5; font-size: 10pt; min-height: 0; }}
+QPushButton#finestra:hover {{ background: rgba(255,255,255,0.10); color: {TESTO}; }}
+QPushButton#finestraChiudi:hover {{ background: #e5484d; color: white; }}
 """
 
 

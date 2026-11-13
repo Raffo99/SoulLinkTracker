@@ -807,7 +807,18 @@ local function valori_struttura(base, ps_max)
   local ps = r16(base + 0x10)
   if ps > ps_max then return nil end
   local st1, st2 = r32(base + 0xFC), r32(base + 0x100)
-  local t = { ps = ps, ps_max = ps_max, stato = r32(base + 0x20) & 0xFF, pp = {}, mosse = {},
+  -- stato alterato: da +0x20 un contatore (u32) per ogni stato, come nell'Ironmon Tracker:
+  -- paralisi, sonno, congelamento, scottatura, veleno, veleno grave. Il primo diverso da zero e' lo stato.
+  -- Valori assurdi (non contatori) vogliono dire che la struttura non e' quella giusta: nessuno stato.
+  local stato = 0
+  for i = 0, 5 do
+    local v = r32(base + 0x20 + i * 4)
+    if v ~= 0 then
+      if v < 0x100 then stato = i + 1 end
+      break
+    end
+  end
+  local t = { ps = ps, ps_max = ps_max, stato = stato, pp = {}, mosse = {},
               stadi = { st1 & 0xFF, (st1 >> 8) & 0xFF, (st2) & 0xFF, (st1 >> 16) & 0xFF, (st1 >> 24) & 0xFF } }  -- att, dif, vel, att.sp, dif.sp
   for i = 0, 3 do
     t.mosse[i + 1] = r16(base + 0x104 + i * 14)
@@ -1298,6 +1309,16 @@ while true do
       local att = attivita_attuale(fc)
       local fa = firma_attivita(att)
       local det = APP and att.lotta and dettagli_lotta() or nil
+      -- in alto nell'app si vede il Pokemon avversario in campo adesso (non solo il primo della squadra)
+      if det and det.nemici then
+        for _, n in ipairs(det.nemici) do
+          if n.in_campo then
+            att.specie, att.livello, att.ps, att.ps_max = n.specie, n.livello, n.ps or att.ps, n.ps_max or att.ps_max
+            fa = firma_attivita(att)
+            break
+          end
+        end
+      end
       if det and det.mio then
         local m = nil
         for _, x in ipairs(squadra or {}) do if x.pid == det.mio.pid then m = x end end

@@ -39,7 +39,7 @@ class RigaBackup(QFrame):
         t = QLabel(f"<b>{quando(b['quando'])}</b>")
         sotto = QLabel(f"<span style='color:{col}'>{TIPI.get(b['tipo'], b['tipo'])}</span>"
                        f"<span style='color:{TENUE}'> · {b['byte'] / 1024:.0f} KB"
-                       f"{' · fatto con BizHawk' if b.get('stato') else ''}"
+                       f"{' · momento esatto' if b.get('stato') else (' · fatto con BizHawk' if b.get('bizhawk') else ' · solo salvataggio')}"
                        f"{'' if b['saveram'] else ' · senza salvataggio del gioco'}</span>")
         v.addWidget(t)
         v.addWidget(sotto)
@@ -66,9 +66,8 @@ class DialogoBackup(QDialog):
         tv.addWidget(t)
         minuti = int(finestra.cfg.get("backup_minuti", 10) or 0)
         ogni = f"ogni {minuti} minuti e " if minuti else ""
-        s = QLabel(f"L'app copia il salvataggio del gioco {ogni}ogni volta che chiudi, cambi partita o riavvii il gioco. "
-                   "Conta l'ultimo salvataggio fatto nel gioco: salva spesso! Per un punto preciso puoi usare anche gli "
-                   "stati di melonDS (Maiusc+F1…F8 per salvare, F1…F8 per caricare, con il gioco selezionato). "
+        s = QLabel(f"L'app salva il punto esatto in cui sei {ogni}ogni volta che chiudi, cambi partita o riavvii il gioco "
+                   "(uno stato salvato di melonDS, più una copia del salvataggio del gioco). "
                    "Il tracker non torna indietro: morti e catture già registrate restano.")
         s.setWordWrap(True)
         s.setObjectName("tenue")
@@ -101,12 +100,16 @@ class DialogoBackup(QDialog):
 
         r2 = QHBoxLayout()
         r2.setSpacing(8)
+        self.b_saveram = QPushButton("Rimetti solo il salvataggio del gioco")
+        self.b_saveram.setToolTip("Chiude melonDS, rimette il salvataggio del gioco di quel momento e riapre il gioco")
+        self.b_saveram.clicked.connect(self._saveram)
+        r2.addWidget(self.b_saveram)
         r2.addStretch()
         chiudi = QPushButton("Chiudi")
         chiudi.clicked.connect(self.reject)
-        self.b_riprendi = QPushButton("Rimetti questo salvataggio")
+        self.b_riprendi = QPushButton("Riprendi da qui")
         self.b_riprendi.setObjectName("primario")
-        self.b_riprendi.setToolTip("Chiude melonDS, rimette il salvataggio del gioco di quel momento e riapre il gioco")
+        self.b_riprendi.setToolTip("Il gioco torna al momento esatto del backup")
         self.b_riprendi.clicked.connect(self._riprendi)
         r2.addWidget(chiudi)
         r2.addWidget(self.b_riprendi)
@@ -139,7 +142,9 @@ class DialogoBackup(QDialog):
     def _pulsanti(self):
         b = self._scelto()
         gioco = self.f.emu.in_esecuzione
-        self.b_riprendi.setEnabled(bool(b and b["saveram"]))
+        self.b_riprendi.setEnabled(bool(b and b.get("stato")) and gioco)
+        self.b_riprendi.setToolTip("Il gioco torna al momento esatto del backup" if gioco else "Avvia prima il gioco")
+        self.b_saveram.setEnabled(bool(b and b["saveram"]))
         self.b_ora.setEnabled(gioco)
         self.b_ora.setToolTip("" if gioco else "Avvia prima il gioco")
 
@@ -152,20 +157,30 @@ class DialogoBackup(QDialog):
                 self.b_ora.setText("Fai un backup adesso")
                 self._riempi()
                 if not ok:
-                    dialoghi.avviso(self, "Backup non riuscito", "Non c'è ancora un salvataggio del gioco da copiare: "
-                                    "salva nel gioco e riprova.")
+                    dialoghi.avviso(self, "Backup non riuscito", "melonDS non ha scritto lo stato e il gioco non è ancora "
+                                    "stato salvato. Riprova tra qualche secondo.")
             except RuntimeError:
                 pass
         self.f._chiedi_backup("manuale", fatto)
 
     def _riprendi(self):
         b = self._scelto()
+        if not b or not self.b_riprendi.isEnabled():
+            return
+        if dialoghi.chiedi(self, "Riprendere da questo backup?",
+                           f"Il gioco torna a {quando(b['quando'])}. Quello che hai fatto dopo, se non lo hai salvato, va perso.\n\n"
+                           "Il tracker non torna indietro: morti e catture già registrate restano.",
+                           si="Riprendi da qui", no="Annulla"):
+            self.f._carica_backup(b)
+            self.accept()
+
+    def _saveram(self):
+        b = self._scelto()
         if not b or not b["saveram"]:
             return
-        if dialoghi.chiedi(self, "Rimettere questo salvataggio?",
+        if dialoghi.chiedi(self, "Rimettere il salvataggio del gioco?",
                            f"melonDS verrà chiuso e riaperto con il salvataggio del gioco di {quando(b['quando'])}. "
-                           "Quello attuale viene tenuto da parte accanto (.prima_del_ripristino).\n\n"
-                           "Il tracker non torna indietro: morti e catture già registrate restano.",
+                           "Quello attuale viene tenuto da parte accanto (.prima_del_ripristino).",
                            si="Rimetti il salvataggio", no="Annulla", pericolo=True):
             self.f._ripristina_saveram(b)
             self.accept()

@@ -108,6 +108,8 @@ class Finestra(QMainWindow):
         self._ultimo_stato = None
 
         self.setWindowTitle(f"Soul Link Tracker {VERSIONE}" + (f" — {self.cfg['codice']}" if self.cfg.get("codice") else ""))
+        # niente barra del titolo di Windows: i pulsanti sono nella barra in alto dell'app
+        self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint)
         self.resize(1560, 920)
         self._costruisci()
         self._collega()
@@ -117,6 +119,8 @@ class Finestra(QMainWindow):
     def _costruisci(self):
         radice = QWidget()
         radice.setObjectName("radice")
+        radice.setMouseTracking(True)                 # bordi della finestra: si ridimensiona da lì
+        self.radice = radice
         self.setCentralWidget(radice)
         v = QVBoxLayout(radice)
         v.setContentsMargins(12, 12, 12, 12)
@@ -132,7 +136,7 @@ class Finestra(QMainWindow):
         # ---- area del gioco: segnaposto oppure melonDS incastrato, al centro di una cornice
         self.area_gioco = QWidget()
         self.area_gioco.setObjectName("pannello")
-        self.area_gioco.setMinimumWidth(480)
+        self.area_gioco.setMinimumWidth(300)
         self.pile = QStackedLayout(self.area_gioco)
         pag = QWidget()
         pv = QVBoxLayout(pag)
@@ -156,14 +160,22 @@ class Finestra(QMainWindow):
         pv.addWidget(self.b_avvia_centro, 0, Qt.AlignHCenter)
         pv.addStretch()
         self.pile.addWidget(pag)
-        self.cornice = CorniceGioco(MEL.PROPORZIONE)
+        self.cornice = CorniceGioco(MEL.proporzione(bool(self.cfg.get("schermi_orizzontali"))))
         self.ospite = self.cornice.schermo
         self.pile.addWidget(self.cornice)
-        split.addWidget(self.area_gioco)
+        # colonna sinistra: il gioco; con gli schermi affiancati sotto ci vanno anche le schede (Coppie…)
+        self.sinistra = QWidget()
+        self._sl = QVBoxLayout(self.sinistra)
+        self._sl.setContentsMargins(0, 0, 0, 0)
+        self._sl.setSpacing(10)
+        self._sl.addWidget(self.area_gioco, 1)
+        split.addWidget(self.sinistra)
+        self.split = split
+        split.splitterMoved.connect(lambda *_: getattr(self, "_orizz", False) and QTimer.singleShot(0, self._altezza_gioco))
 
         # ---- colonna destra
         destra = QWidget()
-        destra.setMinimumWidth(500)
+        destra.setMinimumWidth(400)
         dv = QVBoxLayout(destra)
         dv.setContentsMargins(0, 0, 0, 0)
         dv.setSpacing(12)
@@ -172,7 +184,7 @@ class Finestra(QMainWindow):
         self.c_obiettivo = CartaObiettivo()
         self.c_luogo = CartaLuogo()
         riga.addWidget(self.c_obiettivo, 1)
-        riga.addWidget(self.c_luogo, 1)
+        self.c_luogo.hide()                             # «Dove sei» tolto: resta solo per i calcoli
         self.c_lotta = CartaLotta(self.sprite)          # durante la lotta prende il posto delle due carte
         from PySide6.QtWidgets import QScrollArea
         self.s_lotta = QScrollArea()                    # se lo schermo è basso il riquadro scorre invece di allungare la finestra
@@ -181,7 +193,7 @@ class Finestra(QMainWindow):
         self.s_lotta.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.s_lotta.setStyleSheet("QScrollArea { background: transparent; } QScrollArea > QWidget > QWidget { background: transparent; }")
         self.s_lotta.setWidget(self.c_lotta)
-        self.s_lotta.setMinimumHeight(220)
+        self.s_lotta.setMinimumHeight(180)
         self.s_lotta.hide()
         dv.addLayout(riga)
         dv.addWidget(self.s_lotta)                      # sotto le due carte (nascoste in lotta), sopra le schede
@@ -208,11 +220,11 @@ class Finestra(QMainWindow):
         sistema.addWidget(self.p_registro)
         sistema.addWidget(self.p_diag)
         sistema.setSizes([300, 300])
-        for w, n in ((self.p_coppie, "Coppie"), (self.p_percorsi, "Percorsi"), (self.p_obiettivi, "Obiettivi"),
-                     (self.p_cimitero, "Cimitero"), (self.p_stat, "Statistiche"), (self.p_diario, "Diario"),
+        # Obiettivi, Statistiche e Diario non sono più schede (i pannelli restano per la diagnosi e la mappa)
+        for w, n in ((self.p_coppie, "Coppie"), (self.p_percorsi, "Percorsi"), (self.p_cimitero, "Cimitero"),
                      (sistema, "Sistema")):
             self.tabs.addTab(w, n)
-        self.tabs.setMinimumHeight(170)       # le schede si stringono; i riquadri sopra no
+        self.tabs.setMinimumHeight(140)       # le schede si stringono; i riquadri sopra no
         dv.addWidget(self.tabs, 1)
         split.addWidget(destra)
         self.destra = destra
@@ -224,6 +236,7 @@ class Finestra(QMainWindow):
 
         # ---- barra dei comandi in basso
         basso = QFrame()
+        self.basso = basso
         basso.setObjectName("barraBasso")
         basso.setFixedHeight(56)
         hb = QHBoxLayout(basso)
@@ -232,16 +245,8 @@ class Finestra(QMainWindow):
         self.i_gioco = Pallino("melonDS")
         self.i_script = Pallino("Script")
         self.i_sito = Pallino("Supabase")
-        for i, w in enumerate((self.i_gioco, self.i_script, self.i_sito)):
-            if i:
-                hb.addSpacing(10)
-            hb.addWidget(w)
-        hb.addSpacing(14)
-        sep = QFrame()
-        sep.setFixedSize(1, 22)
-        sep.setStyleSheet("background:#2f3344;")
-        hb.addWidget(sep, 0, Qt.AlignVCenter)
-        hb.addSpacing(14)
+        for w in (self.i_gioco, self.i_script, self.i_sito):      # stato di gioco, script e Supabase: solo nel registro
+            w.hide()
         self.l_stato = QLabel("")
         self.l_stato.setObjectName("tenue")
         self.l_stato.setMinimumWidth(80)
@@ -339,6 +344,10 @@ class Finestra(QMainWindow):
         m_altro = QMenu(self)
         self.a_console = m_altro.addAction("Mostra il menu di melonDS (tasti, audio, video…)")
         self.a_console.setCheckable(True)
+        self.a_orizz = m_altro.addAction("Schermi affiancati (in orizzontale)")
+        self.a_orizz.setCheckable(True)
+        self.a_orizz.setChecked(bool(self.cfg.get("schermi_orizzontali")))
+        self.a_orizz.triggered.connect(self._cambia_schermi)
         m_altro.addSeparator()
         m_altro.addAction("Backup e ripristino…", self._apri_backup)
         m_altro.addAction("Controlla il tracker con il gioco…", lambda: self._controllo(False))
@@ -397,7 +406,7 @@ class Finestra(QMainWindow):
         self._controllo_visto = None
         MiniPokemon.apri = self._scheda_pokemon
         self.p_percorsi.apri_pokemon = self._apri_pokemon
-        self.p_cimitero.itemDoubleClicked.connect(lambda it: it.data(Qt.UserRole) and self._apri_pokemon(it.data(Qt.UserRole)))
+        self.p_cimitero.apri = self._apri_pokemon
         self._in_primo_piano = True
         self._t_focus = QTimer(self)
         self._t_focus.timeout.connect(self._controlla_focus)
@@ -415,6 +424,7 @@ class Finestra(QMainWindow):
         self._t_adatta = QTimer(self)
         self._t_adatta.timeout.connect(self._adatta)
         self._t_adatta.start(1000)
+        self._disposizione_schermi(bool(self.cfg.get("schermi_orizzontali")))
         self._t_tempo = QTimer(self)
         self._t_tempo.timeout.connect(self.barra.tic)
         self._t_tempo.start(1000)
@@ -444,7 +454,7 @@ class Finestra(QMainWindow):
         self.i_sito.setToolTip(err or "")
         if not ok and err and err != getattr(self, "_ultimo_err", None):
             self._ultimo_err = err
-            self._log("Supabase: " + err, KO)
+            self._log(("Collegamento: " if self.cfg.get("rete") != "supabase" else "Supabase: ") + err, KO)
 
     def _run_cambiata(self, run, stato):
         if self.sincro.edizione is not None and self.sincro.edizione != self.locale.get("ultima_edizione") and self.locale.get("ultima_edizione") is not None:
@@ -521,6 +531,19 @@ class Finestra(QMainWindow):
             exe = MEL.copia_locale(exe)
         except OSError as e:
             self._log(f"Copia di melonDS non riuscita, uso quello indicato: {e}", WARN)
+        self.emu.da_caricare = None
+        if str(rom) not in self._ripresa_chiesta:
+            self._ripresa_chiesta.add(str(rom))
+            b = self.backup.ultimo_chiusura(run, rom)
+            subito = getattr(self, "_riprendi_senza_chiedere", False)
+            self._riprendi_senza_chiedere = False
+            if b and subito:
+                self.emu.da_caricare = b["stato"]
+            elif b and dialoghi.chiedi(self, "Riprendere da dove avevi lasciato?",
+                                     f"L'ultima volta l'app è stata chiusa il {datetime.fromtimestamp(b['quando']).strftime('%d/%m alle %H:%M')}, "
+                                     "dopo il tuo ultimo salvataggio nel gioco. Ho uno stato salvato di quel momento: vuoi ripartire da lì?",
+                                     si="Riprendi da lì", no="Usa il salvataggio del gioco"):
+                self.emu.da_caricare = b["stato"]
         m = self.run_mgr.migra_da_bizhawk(rom)
         if m:
             self._log(m, OK)
@@ -535,11 +558,12 @@ class Finestra(QMainWindow):
             self._log(f"Script Lua non copiato: {e}", KO)
         self.sincro.imposta_run_rom(run_della_rom(rom) if self.cfg["randomizza"] else None)
         vel = int(self.cfg.get("velocita", 100) or 100)
+        orizz = bool(self.cfg.get("schermi_orizzontali"))
+        self._disposizione_schermi(orizz)
         if self.emu.avvia(exe, rom, self.run_mgr.cartella_saveram(), self.run_mgr.cartella_stati(), vel,
-                          int(self.cfg.get("volume", 5))):
+                          int(self.cfg.get("volume", 5)), orizz):
             self._log(f"Avvio melonDS con {rom.name}")
             self.segnaposto.setText("Avvio melonDS…")
-            self.cornice.imposta_didascalia(f"melonDS  ·  run #{run}  ·  {rom.stem}")
             self.b_avvia_centro.hide()
             self.i_gioco.imposta(True, "avvio")
             self._avvia_script(lua)
@@ -561,7 +585,7 @@ class Finestra(QMainWindow):
         rom = self.emu.rom
 
         def log(t):
-            self._in_gui.emit(lambda t=t: self._log(f"Script: {t}", TENUE))
+            self._in_gui.emit(lambda t=t: self._log(f"Script: {t}", TENUE, stato=False))
         self.motore = MotoreScript(lua, self.emu.ram, self.ponte.scambia, fps=self.emu.fps,
                                    nome_rom=lambda: Path(rom).stem if rom else "", log=log,
                                    collegato=self.ponte.imposta_collegato)
@@ -647,12 +671,68 @@ class Finestra(QMainWindow):
         QTimer.singleShot(700, self.emu.dai_focus)
         if int(self.cfg.get("velocita", 100) or 100) > 100:
             QTimer.singleShot(2500, lambda: self.emu.avanti_veloce(True))
+        if self.emu.da_caricare:
+            QTimer.singleShot(3000, self._riprendi_stato)
+
+    def _disposizione_schermi(self, orizzontale: bool):
+        """Schermi affiancati: il gioco è largo e basso, quindi le schede (Coppie, Percorsi…) vanno sotto il gioco."""
+        if getattr(self, "_orizz", None) == orizzontale:
+            return
+        self._orizz = orizzontale
+        self.cornice.proporzione = MEL.proporzione(orizzontale)
+        if orizzontale:
+            self._dv.removeWidget(self.tabs)
+            self._dv.addStretch(1)                          # la colonna destra resta in alto
+            self._sl.addWidget(self.tabs, 2)
+            self._sl.setStretchFactor(self.area_gioco, 3)
+            self.split.setSizes([int(self.split.width() * 0.62), int(self.split.width() * 0.38)])
+        else:
+            self._sl.removeWidget(self.tabs)
+            ultimo = self._dv.itemAt(self._dv.count() - 1)
+            if ultimo is not None and ultimo.spacerItem() is not None:
+                self._dv.removeItem(ultimo)
+            self._dv.addWidget(self.tabs, 1)
+            self.split.setSizes([int(self.split.width() * 0.58), int(self.split.width() * 0.42)])
+        self._altezza_gioco()
+        self.cornice.schermo.setGeometry(self.cornice.area_schermo())
+        self.cornice.update()
+        QTimer.singleShot(0, self._adatta)
+
+    def _altezza_gioco(self):
+        """Schermi affiancati: il riquadro del gioco alto quanto serve, il resto alle schede sotto."""
+        if getattr(self, "_orizz", False):
+            m = 2 * (22 + CorniceGioco.BORDO)
+            self.area_gioco.setMaximumHeight(max(160, int((self.sinistra.width() - m) / self.cornice.proporzione) + m))
+        else:
+            self.area_gioco.setMaximumHeight(16777215)
+
+    def _cambia_schermi(self, si):
+        self.cfg["schermi_orizzontali"] = bool(si)
+        self.cfg.salva()
+        if not self.emu.in_esecuzione:
+            self._disposizione_schermi(bool(si))
+            return
+        # melonDS legge la disposizione degli schermi solo all'avvio
+        if dialoghi.chiedi(self, "Cambiare la disposizione degli schermi?",
+                           "melonDS va riavviato: prima l'app fa un backup del punto esatto in cui sei e poi ti chiede "
+                           "se riprendere da lì.", si="Riavvia ora", no="Al prossimo avvio"):
+            self._ripresa_chiesta.discard(str(self.emu.rom))
+            self._riprendi_senza_chiedere = True
+            self._salva_e_ferma("cambio", self._avvia_richiesto.emit)
+
+    def _riprendi_stato(self):
+        if self.emu.da_caricare and self.emu.hwnd:
+            self.emu.da_caricare = None
+            if self.emu.premi(MEL.VK_F7):
+                self._log("Ripreso lo stato salvato alla chiusura", OK)
+                self.notifiche.mostra("Ripreso da dove avevi lasciato", OK)
+                QTimer.singleShot(8000, self._controllo_automatico)
 
     def _misura_menu(self):
         if self.emu.hwnd:
             if self.emu.calcola_scarti():
                 fonte = "misurati" if MEL.misura_scarti(self.emu.hwnd) else "stimati"
-                self._log(f"melonDS: menu e bordi {fonte} (sinistra, sopra, destra, sotto) = {self.emu.scarti}", TENUE)
+                self._log(f"melonDS: menu e bordi {fonte} (sinistra, sopra, destra, sotto) = {self.emu.scarti}", TENUE, stato=False)
             self._adatta(misura=False)
 
     def _mostra_menu_melon(self, si):
@@ -830,17 +910,23 @@ class Finestra(QMainWindow):
         if attivo and sys.platform == "win32" and self.emu.hwnd:
             try:
                 import ctypes
-                if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8001:          # tasto sinistro premuto
+                if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000:          # tasto sinistro premuto
                     from PySide6.QtGui import QCursor
                     if self.ospite.rect().contains(self.ospite.mapFromGlobal(QCursor.pos())):
                         self._gioco_selezionato = True
+                # gioco selezionato: la tastiera deve stare a melonDS (se l'app se l'è ripresa, gliela ridiamo)
+                if (getattr(self, "_gioco_selezionato", False) and not self.emu.ha_focus()
+                        and not QApplication.activeModalWidget() and not QApplication.activePopupWidget()
+                        and not isinstance(QApplication.focusWidget(), (QLineEdit, QTextEdit, QPlainTextEdit,
+                                                                         QAbstractSpinBox, QComboBox))):
+                    self.emu.dai_focus()
             except Exception:
                 pass
 
     def _mostra_lotta(self, det):
         in_lotta = bool(det)
         self.c_obiettivo.setVisible(not in_lotta)
-        self.c_luogo.setVisible(not in_lotta)
+
         self.s_lotta.setVisible(in_lotta)
         self.c_lotta.setVisible(in_lotta)
         # in lotta il riquadro (al massimo alto quanto il contenuto) e le schede si dividono lo spazio 3 a 2
@@ -1079,7 +1165,6 @@ class Finestra(QMainWindow):
             d.mkdir(parents=True, exist_ok=True)
             with self._lock:
                 self._comandi_lua.append(f"DUMPLOTTA {d / 'ultima_lotta.txt'}")
-            QTimer.singleShot(1500, self._proponi_ripresa)
             QTimer.singleShot(12000, self._controllo_automatico)
 
     # ================================================================ stato condiviso
@@ -1307,20 +1392,33 @@ class Finestra(QMainWindow):
         return run_della_rom(self.emu.rom) if self.emu.rom else None
 
     def _chiedi_backup(self, tipo, alla_fine=None, attesa=6.0):
-        """Copia il salvataggio del gioco (il .sav di melonDS). alla_fine(ok) arriva sempre (anche se va male)."""
+        """Backup: stato salvato di melonDS (il momento esatto) + copia del salvataggio del gioco.
+        alla_fine(ok) arriva sempre, anche se va male."""
         run = self._run_in_gioco()
-        ok = False
-        if self.emu.rom and run is not None:
-            f = self.backup.fai(run, tipo, self.emu.rom)
-            ok = f is not None
+        if not self.emu.rom or run is None:
+            if alla_fine:
+                alla_fine(False)
+            return
+        base = self.backup.nuovo(run, tipo)
+        ok_sav = self.backup.copia_sav(base, self.emu.rom)
+
+        def fine(stato):
+            ok_st = bool(stato) and self.backup.copia_stato(base, stato)
+            ok = ok_sav or ok_st
             if ok:
+                self.backup.pulisci(run)
                 if tipo == "auto":
                     self._ultimo_backup = time.time()
-                self._log(f"Backup {TIPI_BACKUP.get(tipo, tipo)} salvato ({f.name})", OK)
+                cosa = "stato del momento e salvataggio" if ok_st and ok_sav else "stato del momento" if ok_st else "solo salvataggio del gioco"
+                self._log(f"Backup {TIPI_BACKUP.get(tipo, tipo)} salvato ({cosa})", OK if ok_st else TENUE)
             elif tipo != "auto":
-                self._log("Backup non fatto: il gioco non è ancora stato salvato", WARN)
-        if alla_fine:
-            alla_fine(ok)
+                self._log("Backup non fatto: né stato salvato né salvataggio del gioco", WARN)
+            if alla_fine:
+                alla_fine(ok)
+        if self.emu.hwnd and self.emu.in_esecuzione and self._gioco_attivo:
+            self.emu.salva_stato(fine)
+        else:
+            fine(None)
 
     def _gestisci_risposte(self, risposte):
         for x in risposte:
@@ -1500,7 +1598,18 @@ class Finestra(QMainWindow):
             self._chiedi_backup("auto")
 
     def _carica_backup(self, b, alla_fine=None):
-        """Con melonDS riprendere da un backup vuol dire rimettere il suo salvataggio del gioco."""
+        """Riprende da un backup: con lo stato di melonDS torna al momento esatto, altrimenti rimette il salvataggio."""
+        if b.get("stato") and self.emu.in_esecuzione and self.emu.hwnd:
+            ok = self.emu.carica_stato(b["stato"])
+            if ok:
+                self._log(f"Ripreso il backup {b['file'].stem}", OK)
+                self.notifiche.mostra("Ripreso da dove avevi lasciato", OK)
+                QTimer.singleShot(8000, self._controllo_automatico)
+            else:
+                self._log("Backup non caricato", KO)
+            if alla_fine:
+                alla_fine(ok)
+            return
         self._ripristina_saveram(b)
         if alla_fine:
             alla_fine(True)
@@ -1515,7 +1624,7 @@ class Finestra(QMainWindow):
                 if dest.exists():
                     shutil.copyfile(dest, dest.with_suffix(".prima_del_ripristino"))
                 shutil.copyfile(b["saveram"], dest)
-                self._log(f"Salvataggio del gioco ripristinato dal backup {b['file'].name}", OK)
+                self._log(f"Salvataggio del gioco ripristinato dal backup {b['file'].stem}", OK)
             except OSError as e:
                 dialoghi.avviso(self, "Ripristino non riuscito", str(e), "errore")
             self._occupato = False
@@ -1528,15 +1637,19 @@ class Finestra(QMainWindow):
             copia()
 
     def _salva_e_ferma(self, tipo, dopo):
-        """Chiusura di melonDS (che scrive il salvataggio del gioco), poi una copia del salvataggio come backup."""
+        """Backup del momento (stato di melonDS + salvataggio), poi chiusura di melonDS."""
         self._occupato = True
-        self._ferma_script()
+        fatto = {"si": False}
 
-        def chiuso():
-            self._chiedi_backup(tipo)
-            dopo()
-        # sempre al giro dopo del ciclo degli eventi: chiuso() può chiudere la finestra (anche da closeEvent)
-        self.emu.ferma(alla_fine=lambda: self._in_gui.emit(lambda: QTimer.singleShot(0, chiuso)))
+        def ferma(ok=False):
+            if fatto["si"]:
+                return
+            fatto["si"] = True
+            self._ferma_script()
+            # sempre al giro dopo del ciclo degli eventi: dopo() può chiudere la finestra (anche da closeEvent)
+            self.emu.ferma(alla_fine=lambda: self._in_gui.emit(lambda: QTimer.singleShot(0, dopo)))
+        QTimer.singleShot(9000, ferma)                     # se lo stato non arriva, si chiude lo stesso
+        self._chiedi_backup(tipo, ferma)
 
     def _proponi_ripresa(self):
         """All'avvio del gioco: se l'ultima volta l'app è stata chiusa senza salvare in gioco, propone di riprendere da lì."""
@@ -1835,7 +1948,7 @@ class Finestra(QMainWindow):
 
     # ================================================================ partite
     def _cambia_partita(self):
-        if self.cfg.mancanti() and not self.cfg.get("supabase_url"):
+        if not self.cfg.get("giocatore") or (self.cfg.get("rete") == "supabase" and not self.cfg.get("supabase_url")):
             self._impostazioni()
             return
         attuale = self.cfg.get("codice")
@@ -1885,14 +1998,15 @@ class Finestra(QMainWindow):
         QTimer.singleShot(2500, self.assicura_gioco)
 
     # ================================================================ varie
-    def _log(self, testo, colore=None):
+    def _log(self, testo, colore=None, stato=True):
         it = QListWidgetItem(f"{datetime.now().strftime('%H:%M:%S')}   {testo}")
         if colore:
             it.setForeground(QColor(colore))
         self.p_registro.insertItem(0, it)
         while self.p_registro.count() > 300:
             self.p_registro.takeItem(self.p_registro.count() - 1)
-        self._stato(testo)
+        if stato:
+            self._stato(testo)
 
     def _stato(self, testo):
         self.l_stato.setText(testo[:160])
@@ -1905,11 +2019,30 @@ class Finestra(QMainWindow):
             "ROM in uso": str(self.emu.rom) if self.emu.rom else "-",
             "cartella ROM": str(self.run_mgr.cartella_rom), "salvataggi del gioco": str(self.run_mgr.cartella_saveram()),
             "salvataggio di partenza": "presente" if self.run_mgr.file_base.exists() else "non ancora creato",
-            "dati scaricati da Supabase": f"{self.sincro.archivio.byte_scaricati // 1024} KB",
+            "collegamento": self._descrivi_rete(),
+            "dati ricevuti": f"{self.sincro.archivio.byte_scaricati // 1024} KB",
         }
+
+    def _descrivi_rete(self) -> str:
+        st = self.sincro.stato_rete()
+        if st is None:
+            return "Supabase"
+        return (f"diretto (P2P): {st['diretti']} collegati direttamente, {st['altri']} visti di recente, "
+                f"relay MQTT {st['mqtt']}, relay Nostr {st['nostr']}")
 
     def eventFilter(self, ogg, ev):
         t = ev.type()
+        if ogg is self.radice and t in (ev.Type.MouseMove, ev.Type.HoverMove):
+            c = self._cursore_bordi(self._bordi(ev.position().toPoint()))
+            if c is not None:
+                self.radice.setCursor(c)
+            else:
+                self.radice.unsetCursor()
+        if ogg is self.radice and t == ev.Type.MouseButtonPress and ev.button() == Qt.LeftButton:
+            e = self._bordi(ev.position().toPoint())
+            if e and self.windowHandle():
+                self.windowHandle().startSystemResize(e)
+                return True
         if ogg is self.destra and t == ev.Type.Resize:
             self.notifiche.riposiziona()
         elif t == ev.Type.MouseButtonPress and isinstance(ogg, QWidget) and ogg.window() is self and ogg.isWindow() is False:
@@ -1925,6 +2058,81 @@ class Finestra(QMainWindow):
             ev.accept()                                     # niente scorciatoie dell'app mentre giochi
             return True
         return super().eventFilter(ogg, ev)
+
+    BORDO_RIDIMENSIONA = 8
+
+    def _bordi(self, pos):
+        """Lati della finestra sotto il mouse (finestra senza bordo di Windows: si ridimensiona dai margini)."""
+        if self.isMaximized():
+            return Qt.Edges()
+        b, r = self.BORDO_RIDIMENSIONA, self.rect()
+        e = Qt.Edges()
+        if pos.x() <= b:
+            e |= Qt.LeftEdge
+        if pos.x() >= r.width() - b:
+            e |= Qt.RightEdge
+        if pos.y() <= b:
+            e |= Qt.TopEdge
+        if pos.y() >= r.height() - b:
+            e |= Qt.BottomEdge
+        return e
+
+    def _cursore_bordi(self, e):
+        if e in (Qt.LeftEdge | Qt.TopEdge, Qt.RightEdge | Qt.BottomEdge):
+            return Qt.SizeFDiagCursor
+        if e in (Qt.RightEdge | Qt.TopEdge, Qt.LeftEdge | Qt.BottomEdge):
+            return Qt.SizeBDiagCursor
+        if e & (Qt.LeftEdge | Qt.RightEdge):
+            return Qt.SizeHorCursor
+        if e & (Qt.TopEdge | Qt.BottomEdge):
+            return Qt.SizeVerCursor
+        return None
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._adatta_schermo_piccolo()
+        if getattr(self, "_orizz", False):
+            QTimer.singleShot(0, self._altezza_gioco)
+
+    def _adatta_schermo_piccolo(self):
+        w, h = self.width(), self.height()
+        stretta, bassa = w < 1440, h < 820
+        if (stretta, bassa) == getattr(self, "_compatto", None):
+            return
+        self._compatto = (stretta, bassa)
+        self.barra.compatta(stretta, bassa)
+        m = 8 if bassa or stretta else 12
+        self.radice.layout().setContentsMargins(m, m, m, m)
+        self.radice.layout().setSpacing(8 if bassa else 10)
+        self.basso.setFixedHeight(48 if bassa else 56)
+        corti = {"b_riavvia": ("Riavvia", "Riavvia gioco"), "b_imp": ("⚙", "Impostazioni"), "b_partenza": ("Partenza", "Partenza")}
+        for nome_b, (corto, lungo) in corti.items():
+            getattr(self, nome_b).setText(corto if stretta else lungo)
+        self.b_imp.setToolTip("Impostazioni")
+        self.l_stato.setVisible(w >= 1180)
+
+    def adatta_allo_schermo(self):
+        """All'avvio: la finestra deve stare nello schermo (ultima posizione, oppure ingrandita sugli schermi piccoli)."""
+        from PySide6.QtCore import QByteArray
+        geo = self.cfg.get("geometria")
+        schermo = (self.screen() or QApplication.primaryScreen()).availableGeometry()
+        if geo:
+            try:
+                self.restoreGeometry(QByteArray.fromHex(geo.encode()))
+            except Exception:
+                geo = None
+        if geo and schermo.intersects(self.frameGeometry()) and self.width() <= schermo.width() + 20:
+            if self.cfg.get("ingrandita"):
+                self.showMaximized()
+            else:
+                self.show()
+            return
+        if schermo.width() < 1600 or schermo.height() < 960:
+            self.showMaximized()
+        else:
+            self.resize(min(1560, schermo.width() - 40), min(920, schermo.height() - 40))
+            self.move(schermo.center() - self.rect().center())
+            self.show()
 
     def _dentro_gioco(self, p) -> bool:
         if self.pile.currentIndex() != 1 or not self.cornice.isVisible():
@@ -1957,6 +2165,12 @@ class Finestra(QMainWindow):
             self._salva_e_ferma("chiusura", chiudi)
             return
         self._ferma_script()
+        try:
+            self.cfg["geometria"] = bytes(self.saveGeometry().toHex()).decode()
+            self.cfg["ingrandita"] = self.isMaximized()
+            self.cfg.salva()
+        except Exception:
+            pass
         self.sincro.ferma()
         self.ponte.chiudi()
         ev.accept()

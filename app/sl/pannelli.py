@@ -457,40 +457,195 @@ class PannelloStatistiche(QScrollArea):
 
 
 # ----------------------------------------------------------------------
-class PannelloCimitero(QListWidget):
+class Lapide(QWidget):
+    """Una tomba: pietra con il Pokémon in grigio, il nome inciso e il giocatore."""
+    L, H = 138, 184
+
+    def __init__(self, p, sprite, colore, luogo, apri):
+        super().__init__()
+        self.p, self.colore, self.luogo, self._apri = p, colore, luogo, apri
+        self.setFixedSize(self.L, self.H)
+        self.pm = None
+        pm = sprite.pixmap(p["specie"], 64)
+        if pm:
+            from PySide6.QtGui import QImage, QPixmap
+            img = pm.toImage().convertToFormat(QImage.Format_ARGB32)
+            for y in range(img.height()):
+                for x in range(img.width()):
+                    c = img.pixelColor(x, y)
+                    if c.alpha():
+                        g = int(0.3 * c.red() + 0.59 * c.green() + 0.11 * c.blue())
+                        g = 40 + g * 110 // 255                     # grigio scuro, come inciso nella pietra
+                        img.setPixelColor(x, y, QColor(g, g, g + 6, c.alpha()))
+            self.pm = QPixmap.fromImage(img)
+        causa = p.get("causa") or ""
+        self.setToolTip(f"<b>{nome(p)}</b> di {p.get('giocatore', '?')}<br>{luogo}" + (f"<br>{causa}" if causa else "")
+                        + "<br><span style='color:#8d92a8'>Doppio clic per correggere</span>")
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseDoubleClickEvent(self, ev):
+        if self._apri and self.p.get("chiave"):
+            self._apri(self.p["chiave"])
+
+    def paintEvent(self, ev):
+        from PySide6.QtCore import QPointF, QRectF
+        from PySide6.QtGui import QFont, QLinearGradient, QPainter, QPainterPath, QPen
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        w, h = self.width(), self.height()
+        # ombra e terra
+        p.setPen(Qt.NoPen)
+        p.setBrush(QColor(0, 0, 0, 70))
+        p.drawEllipse(QRectF(10, h - 18, w - 20, 14))
+        # pietra: rettangolo con la cima tonda
+        x0, x1, y0, y1 = 16, w - 16, 8, h - 12
+        r = (x1 - x0) / 2
+        forma = QPainterPath()
+        forma.moveTo(x0, y1)
+        forma.lineTo(x0, y0 + r)
+        forma.arcTo(QRectF(x0, y0, 2 * r, 2 * r), 180, -180)
+        forma.lineTo(x1, y1)
+        forma.closeSubpath()
+        g = QLinearGradient(QPointF(x0, y0), QPointF(x1, y1))
+        g.setColorAt(0, QColor("#8a8fa3"))
+        g.setColorAt(0.55, QColor("#6a6f83"))
+        g.setColorAt(1, QColor("#4b4f60"))
+        p.setBrush(g)
+        p.setPen(QPen(QColor("#252733"), 2))
+        p.drawPath(forma)
+        # bordo inciso e luce sul lato sinistro
+        p.setPen(QPen(QColor(255, 255, 255, 30), 1))
+        p.setBrush(Qt.NoBrush)
+        interna = QPainterPath()
+        k = 6
+        interna.moveTo(x0 + k, y1 - 4)
+        interna.lineTo(x0 + k, y0 + r)
+        interna.arcTo(QRectF(x0 + k, y0 + k, 2 * (r - k), 2 * (r - k)), 180, -180)
+        interna.lineTo(x1 - k, y1 - 4)
+        p.drawPath(interna)
+        # R.I.P.
+        f = QFont(self.font())
+        f.setPointSizeF(7.5)
+        f.setBold(True)
+        f.setLetterSpacing(QFont.AbsoluteSpacing, 2)
+        p.setFont(f)
+        p.setPen(QColor(20, 21, 28, 190))
+        p.drawText(QRectF(x0, y0 + 13, x1 - x0, 14), Qt.AlignCenter, "R.I.P.")
+        # il Pokémon
+        if self.pm:
+            p.setOpacity(0.9)
+            p.drawPixmap(int(w / 2 - 32), int(y0 + 26), self.pm)
+            p.setOpacity(1)
+        # nome inciso (scuro con un filo di luce sotto)
+        f2 = QFont(self.font())
+        f2.setPointSizeF(9.5)
+        f2.setBold(True)
+        p.setFont(f2)
+        rn = QRectF(x0 + 4, y0 + 92, x1 - x0 - 8, 18)
+        testo = p.fontMetrics().elidedText(nome(self.p), Qt.ElideRight, int(rn.width()))
+        p.setPen(QColor(255, 255, 255, 70))
+        p.drawText(rn.translated(0, 1), Qt.AlignCenter, testo)
+        p.setPen(QColor("#0d0e13"))
+        p.drawText(rn, Qt.AlignCenter, testo)
+        f3 = QFont(self.font())
+        f3.setPointSizeF(8)
+        f3.setWeight(QFont.DemiBold)
+        p.setFont(f3)
+        p.setPen(QColor(14, 15, 20, 235))
+        sotto = f"Lv. {self.p.get('livello', '?')}"
+        p.drawText(QRectF(x0, y0 + 110, x1 - x0, 14), Qt.AlignCenter, sotto)
+        luogo = p.fontMetrics().elidedText(self.luogo, Qt.ElideRight, int(x1 - x0 - 12))
+        p.drawText(QRectF(x0 + 6, y0 + 124, x1 - x0 - 12, 14), Qt.AlignCenter, luogo)
+        # targhetta del giocatore
+        f4 = QFont(self.font())
+        f4.setPointSizeF(7.5)
+        f4.setBold(True)
+        p.setFont(f4)
+        gioc = self.p.get("giocatore", "?")
+        lw = min(x1 - x0 - 10, p.fontMetrics().horizontalAdvance(gioc) + 16)
+        tr = QRectF(w / 2 - lw / 2, y1 - 26, lw, 16)
+        c = QColor(self.colore)
+        c.setAlpha(235)
+        p.setPen(Qt.NoPen)
+        p.setBrush(c)
+        p.drawRoundedRect(tr, 8, 8)
+        p.setPen(QColor("#101118"))
+        p.drawText(tr, Qt.AlignCenter, gioc)
+        # ciuffi d'erba alla base
+        p.setPen(QPen(QColor(74, 140, 86, 200), 1.6))
+        for bx in (x0 + 2, x1 - 4):
+            for dx, alto in ((-3, 5), (0, 8), (3, 6)):
+                p.drawLine(QPointF(bx + dx * 0.4, y1 + 1), QPointF(bx + dx, y1 + 1 - alto))
+        p.end()
+
+
+class PannelloCimitero(QScrollArea):
+    """Le tombe dei Pokémon morti nella run, dalla più recente."""
+
     def __init__(self, sprite):
         super().__init__()
         self.sprite = sprite
-        self.setViewMode(QListWidget.IconMode)
-        self.setIconSize(self.iconSize().__class__(56, 56))
-        self.setResizeMode(QListWidget.Adjust)
-        self.setSpacing(10)
-        self.setWordWrap(True)
+        self.apri = None                     # apri(chiave): correzione a mano (doppio clic su una tomba)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.dentro = QWidget()
+        self.dentro.setObjectName("cimitero")
+        self.dentro.setStyleSheet("QWidget#cimitero { background: transparent; }")
+        self.setStyleSheet("QScrollArea { background: transparent; }")
+        self.griglia = QGridLayout(self.dentro)
+        self.griglia.setContentsMargins(10, 12, 10, 12)
+        self.griglia.setHorizontalSpacing(8)
+        self.griglia.setVerticalSpacing(10)
+        self.setWidget(self.dentro)
         self._firma = None
+        self._lapidi = []
+        self._colonne = 0
 
     def aggiorna(self, st):
-        morti = sorted([p for p in st["pokemon"].values() if p["stato"] == "morto"], key=lambda p: p.get("morto") or 0)
-        firma = repr([(p["chiave"], p.get("causa")) for p in morti])
+        from . import logica as L
+        morti = sorted([p for p in st["pokemon"].values() if p["stato"] == "morto"], key=lambda p: -(p.get("morto") or 0))
+        firma = repr([(p["chiave"], p.get("causa"), p.get("livello")) for p in morti])
         if firma == self._firma:
             return
         self._firma = firma
-        self.clear()
+        colori = colori_giocatori(st)
+        for w in self._lapidi:
+            w.deleteLater()
+        self._lapidi = []
+        pulisci(self.griglia)
         if not morti:
-            it = QListWidgetItem("Ancora nessun caduto. Che resti così!")
-            it.setForeground(QColor(TENUE))
-            it.setFlags(Qt.NoItemFlags)
-            self.addItem(it)
+            vuoto = QLabel("Ancora nessun caduto. Che resti così!")
+            vuoto.setObjectName("tenue")
+            vuoto.setAlignment(Qt.AlignCenter)
+            self.griglia.addWidget(vuoto, 0, 0)
+            self._colonne = 0
+            return
         for p in morti:
-            it = QListWidgetItem(f"{nome(p)}\n{p['giocatore']} · Lv.{p.get('livello', '?')}")
-            it.setData(Qt.UserRole, p.get("chiave"))
-            it.setToolTip(p.get("causa", ""))
-            pm = self.sprite.pixmap(p["specie"], 56)
-            if pm:
-                it.setIcon(QIcon(pm))
-            it.setForeground(QColor(TENUE))
-            self.addItem(it)
-        if not morti:
-            self.addItem(QListWidgetItem("Nessuna vittima. Per ora."))
+            try:
+                luogo = L.nome_luogo(p.get("luogo")) if p.get("luogo") is not None else ""
+            except Exception:
+                luogo = ""
+            self._lapidi.append(Lapide(p, self.sprite, colori.get(p.get("giocatore"), ACC), luogo or "", self.apri))
+        self._disponi(forza=True)
+
+    def _disponi(self, forza=False):
+        if not self._lapidi:
+            return
+        col = max(1, (self.viewport().width() - 20) // (Lapide.L + 8))
+        if col == self._colonne and not forza:
+            return
+        self._colonne = col
+        while self.griglia.count():
+            self.griglia.takeAt(0)
+        for i, w in enumerate(self._lapidi):
+            self.griglia.addWidget(w, i // col, i % col, Qt.AlignTop | Qt.AlignHCenter)
+        self.griglia.setRowStretch(len(self._lapidi) // col + 1, 1)
+        self.griglia.setColumnStretch(col, 1)
+
+    def resizeEvent(self, ev):
+        super().resizeEvent(ev)
+        self._disponi()
 
     def forza(self):
         self._firma = None

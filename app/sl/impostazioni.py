@@ -60,7 +60,7 @@ class Impostazioni(QDialog):
             l.setWordWrap(True)
             v.addWidget(l)
 
-        g1 = QGroupBox("GIOCATORE E PARTITA CONDIVISA (SUPABASE)")
+        g1 = QGroupBox("GIOCATORE E PARTITA CONDIVISA")
         f1 = self._form(g1)
         self.giocatore = QLineEdit(cfg["giocatore"])
         self.giocatore.setPlaceholderText("diverso da quello dell'amico")
@@ -72,12 +72,30 @@ class Impostazioni(QDialog):
         self.codice.setPlaceholderText("uguale per tutti i giocatori, es. drago-luna-4821")
         prova = QPushButton("Prova collegamento")
         prova.clicked.connect(self._prova)
+        self.rete = QComboBox()
+        self.rete.addItem("Diretto tra le app (consigliato: niente account)", "p2p")
+        self.rete.addItem("Supabase (database vostro)", "supabase")
+        self.rete.setCurrentIndex(0 if (cfg.get("rete") or "p2p") != "supabase" else 1)
+        self.rete.setToolTip("Diretto: le app si trovano con il codice della partita tramite relay pubblici e poi parlano "
+                             "direttamente (WebRTC); se non si può, i dati passano da un relay MQTT pubblico. Tutto cifrato "
+                             "con il codice. Tutti i giocatori della partita devono usare lo stesso collegamento.")
         f1.addRow("Il tuo nome", self.giocatore)
-        f1.addRow("Indirizzo Supabase", self.sb_url)
-        f1.addRow("Chiave pubblica", self.sb_chiave)
-        self.codice.setToolTip("Il codice della partita in corso. Per avere più partite usa «Cambia partita» (clic sul codice in alto).")
         f1.addRow("Codice della partita", self.codice)
+        f1.addRow("Collegamento", self.rete)
+        self.l_sb_url, self.l_sb_chiave = QLabel("Indirizzo Supabase"), QLabel("Chiave pubblica")
+        f1.addRow(self.l_sb_url, self.sb_url)
+        f1.addRow(self.l_sb_chiave, self.sb_chiave)
+        self.codice.setToolTip("Il codice della partita (uguale per tutti): è anche la chiave che cifra i dati. "
+                               "Per avere più partite usa «Cambia partita» (clic sul codice in alto).")
         f1.addRow("", prova)
+        self._prova_b = prova
+
+        def scelta_rete():
+            sb = self.rete.currentData() == "supabase"
+            for w in (self.l_sb_url, self.sb_url, self.l_sb_chiave, self.sb_chiave, self._prova_b):
+                w.setVisible(sb)
+        self.rete.currentIndexChanged.connect(lambda *_: scelta_rete())
+        scelta_rete()
         v.addWidget(g1)
 
         g2 = QGroupBox("EMULATORE E RANDOMIZER")
@@ -171,7 +189,7 @@ class Impostazioni(QDialog):
     def _salva(self):
         c = self.cfg
         c.update(giocatore=self.giocatore.text().strip(), supabase_url=self.sb_url.text().strip().rstrip("/"),
-                 supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), melonds=self.melon.text().strip(), randomizza=True,
+                 supabase_chiave=self.sb_chiave.text().strip(), codice=self.codice.text().strip(), rete=self.rete.currentData(), melonds=self.melon.text().strip(), randomizza=True,
                  java=self.java.text().strip() or "java", jar=self.jar.text(), impostazioni=self.imp.text(),
                  rom_originale=self.rom.text(), cartella_dati=self.dati.text() or c["cartella_dati"],
                  salta_inizio=self.salta.isChecked(), cartella_salvataggi=self.saveram.text(), diagnostica=self.diag.isChecked(),

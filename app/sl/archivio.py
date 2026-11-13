@@ -160,3 +160,34 @@ class Archivio:
                 t = 0
             out[x["giocatore"]] = {"visto": t, "info": x.get("info") or {}}
         return out
+
+    def chiudi(self):
+        pass
+
+
+# ------------------------------------------------------------------ scelta del collegamento
+def usa_p2p(cfg) -> bool:
+    rete = cfg.get("rete")
+    if not rete:                                   # configurazione senza la scelta: Supabase se è impostato
+        rete = "supabase" if (cfg.get("supabase_url") or "").strip() else "p2p"
+    return rete != "supabase"
+
+
+def nuovo_archivio(cfg, codice=None):
+    """Archivio della partita: collegamento diretto (P2P, predefinito) oppure Supabase."""
+    codice = codice if codice is not None else cfg.get("codice")
+    url, chiave = cfg.get("supabase_url"), cfg.get("supabase_chiave")
+    if not usa_p2p(cfg):
+        return Archivio(url, chiave, codice)
+    from .archivio_p2p import ArchivioP2P
+    importa = None
+    if (url or "").strip() and (chiave or "").strip():
+        importa = lambda: Archivio(url, chiave, codice).carica()      # passaggio da Supabase: si porta la partita
+    return ArchivioP2P(codice, cfg.get("giocatore"), importa=importa)
+
+
+def riassunto(cfg, codice):
+    if not usa_p2p(cfg):
+        return Archivio(cfg.get("supabase_url"), cfg.get("supabase_chiave"), codice).riassunto()
+    from .archivio_p2p import riassunto_p2p
+    return riassunto_p2p(codice)

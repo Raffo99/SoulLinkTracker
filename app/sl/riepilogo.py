@@ -163,7 +163,7 @@ class CartaGiocatore(QFrame):
     def __init__(self):
         super().__init__()
         self.setObjectName("giocatore")
-        self.setMinimumWidth(190)
+        self.setMinimumWidth(140)
         self.setMaximumWidth(340)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         # avatar a sinistra accanto a nome e stato; sotto dov'è e livello / cap (i PS sono già nelle Coppie)
@@ -258,14 +258,16 @@ class BarraSuperiore(QFrame):
         h = QHBoxLayout(self)
         h.setContentsMargins(20, 9, 12, 9)
         h.setSpacing(10)
-        h.addWidget(logo(44), 0, Qt.AlignVCenter)
+        self.l_logo = logo(44)
+        h.addWidget(self.l_logo, 0, Qt.AlignVCenter)
         h.addSpacing(6)
         sx = QVBoxLayout()
         sx.setSpacing(7)
         sx.addStretch()
         r0 = QHBoxLayout()
         r0.setSpacing(12)
-        r0.addWidget(etichetta(f"Soul Link <span style='color:#b6a4ff;font-weight:600'>Tracker</span>", "titolo"))
+        self.l_titolo = etichetta(f"Soul Link <span style='color:#b6a4ff;font-weight:600'>Tracker</span>", "titolo")
+        r0.addWidget(self.l_titolo)
         self.b_partita = QPushButton("partita")
         self.b_partita.setObjectName("partita")
         self.b_partita.setCursor(Qt.PointingHandCursor)
@@ -282,7 +284,9 @@ class BarraSuperiore(QFrame):
         self.l_tempo.setToolTip("Tempo di gioco della run: conta solo quando almeno un giocatore sta giocando")
         riga.addWidget(self.l_tempo, 0, Qt.AlignVCenter)
         self.l_conti = etichetta("")
-        riga.addWidget(self.l_conti, 0, Qt.AlignVCenter)
+        self.l_conti.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # si accorcia se manca spazio
+        self.l_conti.setMinimumWidth(0)
+        riga.addWidget(self.l_conti, 1, Qt.AlignVCenter)
         riga.addStretch()
         sx.addLayout(riga)
         sx.addStretch()
@@ -292,9 +296,60 @@ class BarraSuperiore(QFrame):
         for c in self.carte:
             h.addWidget(c, 2)
             c.hide()
+        # pulsanti della finestra (la barra del titolo di Windows non c'è più): riduci, ingrandisci, chiudi
+        fin = QVBoxLayout()
+        fin.setContentsMargins(0, 0, 0, 0)
+        fin.setSpacing(4)
+        self.b_riduci = QPushButton("–")
+        self.b_ingrandisci = QPushButton("☐")
+        self.b_chiudi = QPushButton("✕")
+        for b, tip in ((self.b_riduci, "Riduci a icona"), (self.b_ingrandisci, "Ingrandisci / ripristina"), (self.b_chiudi, "Chiudi")):
+            b.setObjectName("finestra")
+            b.setFixedSize(30, 24)
+            b.setFocusPolicy(Qt.NoFocus)
+            b.setToolTip(tip)
+            b.setCursor(Qt.PointingHandCursor)
+        self.b_chiudi.setObjectName("finestraChiudi")
+        self.b_riduci.clicked.connect(lambda: self.window().showMinimized())
+        self.b_ingrandisci.clicked.connect(self.ingrandisci)
+        self.b_chiudi.clicked.connect(lambda: self.window().close())
+        fin.addWidget(self.b_chiudi)
+        fin.addWidget(self.b_ingrandisci)
+        fin.addWidget(self.b_riduci)
+        fin.addStretch()
+        h.addSpacing(4)
+        h.addLayout(fin)
         self.inizio = None
         self.tempo = self.tempo_vivo = None
         self.fermo = False
+
+    def ingrandisci(self):
+        w = self.window()
+        w.showNormal() if w.isMaximized() else w.showMaximized()
+
+    def mousePressEvent(self, ev):
+        """Trascinando la barra si sposta la finestra (come la barra del titolo di Windows)."""
+        if ev.button() == Qt.LeftButton and self.window().windowHandle():
+            self.window().windowHandle().startSystemMove()
+            ev.accept()
+            return
+        super().mousePressEvent(ev)
+
+    def mouseDoubleClickEvent(self, ev):
+        if ev.button() == Qt.LeftButton:
+            self.ingrandisci()
+            ev.accept()
+            return
+        super().mouseDoubleClickEvent(ev)
+
+    def compatta(self, stretta: bool, bassa: bool):
+        """Schermi piccoli: meno spazio per titolo e conteggi, barra più bassa."""
+        self.l_titolo.setVisible(not stretta)
+        self.l_conti.setVisible(not stretta)
+        self.l_logo.setVisible(not stretta)
+        self.setFixedHeight(104 if bassa else 122)
+        for c in self.carte:
+            c.setMinimumWidth(140)
 
     def aggiorna(self, st, io):
         stato = st["stato"]
@@ -691,7 +746,7 @@ class CorniceGioco(QWidget):
     La finestra di melonDS sta nel riquadro nativo «schermo»; tutto il resto (sfondo, cornice, scritta) è disegnato qui."""
     ridimensionato = Signal()
     BORDO = 18              # spessore della cornice intorno agli schermi
-    SOTTO = 34              # spazio per la scritta sotto la cornice
+    SOTTO = 0               # niente scritta sotto la cornice
 
     def __init__(self, proporzione: float):
         super().__init__()
@@ -766,14 +821,20 @@ class CorniceGioco(QWidget):
         # vetro intorno agli schermi
         p.setPen(QPen(QColor(0, 0, 0, 190), 3))
         p.setBrush(Qt.NoBrush)
-        p.drawRoundedRect(s.adjusted(-2.5, -2.5, 2.5, 2.5), 7, 7)
+        p.drawRect(s.adjusted(-1.5, -1.5, 1.5, 1.5))        # angoli vivi come gli schermi di melonDS
         # cerniera: due piccole fessure ai lati, all'altezza dello spazio tra gli schermi
-        meta = s.top() + s.height() / 2
-        alto = max(6.0, s.height() * 0.03)
         p.setPen(Qt.NoPen)
         p.setBrush(QColor(0, 0, 0, 120))
-        for x in (corpo.left() + b / 2 - 2, corpo.right() - b / 2 - 2):
-            p.drawRoundedRect(QRectF(x, meta - alto / 2, 4, alto), 2, 2)
+        if self.proporzione > 1:          # schermi affiancati (superiore a sinistra, touch a destra): spazio verticale
+            meta = s.left() + s.width() / 2
+            largo = max(6.0, s.width() * 0.015)
+            for y in (corpo.top() + b / 2 - 2, corpo.bottom() - b / 2 - 2):
+                p.drawRoundedRect(QRectF(meta - largo / 2, y, largo, 4), 2, 2)
+        else:
+            meta = s.top() + s.height() / 2
+            alto = max(6.0, s.height() * 0.03)
+            for x in (corpo.left() + b / 2 - 2, corpo.right() - b / 2 - 2):
+                p.drawRoundedRect(QRectF(x, meta - alto / 2, 4, alto), 2, 2)
         # spia accesa, con il suo alone
         spia = QPointF(corpo.left() + b + 10, corpo.bottom() - b / 2)
         alone = QRadialGradient(spia, 9)
